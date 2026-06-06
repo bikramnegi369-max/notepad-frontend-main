@@ -1,17 +1,23 @@
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import './index.css';
-import App from './App';
-import reportWebVitals from './reportWebVitals';
-import { AuthProvider } from './contexts/Auth';
+import React from "react";
+import ReactDOM from "react-dom/client";
+import "./index.css";
+import App from "./App";
+import reportWebVitals from "./reportWebVitals";
+import { AuthProvider } from "./contexts/Auth";
+import { CookiesProvider } from "react-cookie";
+import { SocketContextProvider } from "./contexts/SocketContext";
 
-const root = ReactDOM.createRoot(document.getElementById('root'));
+const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(
   <React.StrictMode>
-    <AuthProvider>
-      <App />
-    </AuthProvider>
-  </React.StrictMode>
+    <CookiesProvider>
+      <AuthProvider>
+        <SocketContextProvider>
+          <App />
+        </SocketContextProvider>
+      </AuthProvider>
+    </CookiesProvider>
+  </React.StrictMode>,
 );
 
 // If you want to start measuring performance in your app, pass a function

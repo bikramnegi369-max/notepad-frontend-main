@@ -1,17 +1,23 @@
-import { useEffect, useState } from "react"
-import { userSocketContext } from "./SocketContext"
+import { useEffect, useState } from "react";
+import { useSocket } from "./SocketContext";
 
- const useListMessage = () => {
-    const {socket} = userSocketContext()
-    const [messageList, setMessageList] = useState([])
-    
-    useEffect(() => {
-        if(socket){
-            socket.on("messageList",(data)=>{
-                setMessageList(data)
-            })
-        }
-    }, [socket,messageList,setMessageList])
-}
+const useListMessage = () => {
+  const { socket } = useSocket() || {};
+  const [messageList, setMessageList] = useState([]);
 
-export default useListMessage
+  useEffect(() => {
+    if (!socket) return;
+
+    const handler = (data) => setMessageList(data || []);
+    socket.on("messageList", handler);
+    return () => {
+      try {
+        socket.off("messageList", handler);
+      } catch (e) {}
+    };
+  }, [socket]);
+
+  return messageList;
+};
+
+export default useListMessage;

@@ -1,140 +1,173 @@
 import { BsFillSendFill } from "react-icons/bs";
 import Messageuser from "./User";
 import { useEffect, useRef, useState } from "react";
-import { Api_Url } from "../api/api";
-import useAuth from "../../contexts/Auth";
 import { FaFileAlt } from "react-icons/fa";
 import { IoIosAttach } from "react-icons/io";
-import socket from "../../socket";
+import { useSocket } from "../../contexts/SocketContext";
+import useListMessage from "../../contexts/useListMessage";
+import { getApiRootUrl } from "../../component/api/api";
 import dateFormat from "dateformat";
 import { IoClose } from "react-icons/io5";
 import { AiOutlineFilePdf } from "react-icons/ai";
 
+const getUserId = (item) =>
+  item?.id || item?._id || item?.sender || item?.to || item?.from || null;
+
 export default function Message() {
-  const [userNameAlreadySelected, setUsernameAlreadySelected] = useState(false);
-  const [userId, setUserId] = useState(false);
+  const [selectedUser, setSelectedUser] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
-  const [formdataValue, setFormdataValue] = useState(false);
-  const [message, setMessages] = useState("");
+  const [message, setMessage] = useState("");
   const [userChats, setUserChats] = useState([]);
   const [users, setUsers] = useState([]);
-  const { cookies } = useAuth();
+  const [typingUsers, setTypingUsers] = useState(new Set());
+  const typingTimeoutsRef = useRef({});
   const chatContainerRef = useRef(null);
-  const [filePath,setFilePath]=useState(null);
-  const [filePreview,setFilePreview]=useState();
+  const [filePath, setFilePath] = useState(null);
+  const [filePreview, setFilePreview] = useState();
+  const { socket, onlineUsers, connect, disconnect } = useSocket();
+  const messageList = useListMessage();
+  const selectedUserId = getUserId(selectedUser);
+
+  useEffect(() => {
+    connect();
+    return () => {
+      disconnect();
+    };
+  }, [connect, disconnect]);
+
   const handleFileChange = (event) => {
     const file = event.target.files[0];
-    console.log(file);
+    if (!file) return;
     setFilePath(file.name);
     setSelectedFile(file);
     setFilePreview(URL.createObjectURL(file));
-    setFormdataValue(true);
   };
 
   const handleClick = (pdfUrl) => {
-    window.open(`https://https://4frnn03l-3000.inc1.devtunnels.ms/public/attachments/${pdfUrl}`, "_blank");
+    const base = getApiRootUrl();
+    const url = base.replace(/\/$/, "") + `/public/attachments/${pdfUrl}`;
+    window.open(url, "_blank");
   };
 
   const handleMessage = (e) => {
-    setMessages(e.target.value);
+    setMessage(e.target.value);
+    const targetId = getUserId(selectedUser);
+    if (targetId && socket && socket.connected) {
+      socket.emit("typing", { to: targetId });
+    }
   };
 
   const handleSubmitMessage = async () => {
-    console.log("sending message");
-    socket.emit("private message", { message,selectedFile,filePath, to: userId.sender });
-    setMessages("");
+    if ((!message.trim() && !selectedFile) || !selectedUser) return;
+    const targetId = getUserId(selectedUser);
+    if (!targetId) return;
+    const s = socket;
+    if (s && s.connected) {
+      s.emit("private message", {
+        message,
+        selectedFile,
+        filePath,
+        to: targetId,
+      });
+    }
+    setMessage("");
     setFilePreview(null);
     setSelectedFile(null);
   };
 
-  const handleId = (id) => {
-    setUserId({ sender: id });
+  const handleId = (user) => {
+    if (!user) return;
+    const selected = { ...user, id: getUserId(user) };
+    setSelectedUser(selected);
     setFilePreview(null);
-    setSelectedFile(null)
-    const to = id;
-    console.log(id, "id ");
-    socket.emit("messages", to);
-  };
-
-  const onMessages = () => {
-    socket.on("messages", (data) => {
-      console.log(data, "data");
-      setUserChats(data);
-    });
-  };
-  
-useEffect(() => {
-  localStorage.removeItem("sessionID");
-  console.log("socket connection");
-  socket.on("messages", (data) => {
-    console.log(data, "data");
-    setUserChats(data);
-  });
-
-  socket.on("private message", (data) => {
-    console.log(data, "new message received");
-
-    setUserChats((prevChats) => [...prevChats, data]);
-  });
-  const sessionID = localStorage.getItem("sessionID");
-
-  const username = cookies.name;
-  const userId = cookies.userId;
-  console.log(sessionID);
-
-  if (sessionID) {
-    console.log(sessionID, "sesionid");
-    setUsernameAlreadySelected(true);
-    socket.auth = { sessionID };
-    socket.connect();
-    // console.log("socket connection")
-  } else {
-    socket.auth = { username, userId };
-    socket.connect();
-  }
-
-  socket.on("session", ({ sessionID, userID }) => {
-    socket.auth = { sessionID };
-    console.log(sessionID,"session")
-    localStorage.setItem("sessionID", sessionID);
-    socket.userID = userID;
-  });
-
-  socket.on("connect_error", (err) => {
-    if (err.message === "invalid username") {
-      setUsernameAlreadySelected(false);
+    setSelectedFile(null);
+    const targetId = selected.id;
+    const s = socket;
+    if (s && s.connected) {
+      s.emit("messages", targetId);
     }
-  });
-  socket.on("users", (users) => {
-    console.log(users, "socket users");
-    setUsers(users);
-    //  users.forEach((user) => {
-
-    //     setUsers((existingUsers) => {
-    //       const userExists = existingUsers.some(
-    //         (existingUser) => existingUser.userID === user.userID
-    //       );
-    //       if (userExists) {
-    //         return existingUsers.map((existingUser) =>
-    //           existingUser.userID === user.userID
-    //             ? { ...existingUser, ...user }
-    //             : existingUser
-    //         );
-    //       }
-    //       user.self = user.userID === socket.userID;
-    //       return [...existingUsers, user];
-    //     });
-    //   });
-  });
-
-  return () => {
-    socket.off("connect_error");
-    socket.disconnect();
-    localStorage.removeItem("sessionID");
+    setUsers((prev) =>
+      prev.map((u) =>
+        getUserId(u) === targetId ? { ...u, newMessages: 0 } : u,
+      ),
+    );
   };
-}, []);
+  useEffect(() => {
+    // rely on SocketContext to manage connection lifecycle
+    if (!socket) return;
 
+    const handleMessages = (data) => setUserChats(data);
+    const handlePrivate = (data) => {
+      setUserChats((prev) => [...prev, data]);
+      const fromId = getUserId(data);
+      const targetId = getUserId(selectedUser);
+      if (fromId && (!selectedUser || fromId !== targetId)) {
+        setUsers((prev) =>
+          prev.map((u) =>
+            getUserId(u) === fromId
+              ? { ...u, newMessages: (u.newMessages || 0) + 1 }
+              : u,
+          ),
+        );
+      }
+    };
+    const handleTyping = (payload) => {
+      const from = payload?.from;
+      if (!from) return;
+      setTypingUsers((prev) => new Set([...prev, from]));
+      // clear previous timeout
+      if (typingTimeoutsRef.current[from])
+        clearTimeout(typingTimeoutsRef.current[from]);
+      typingTimeoutsRef.current[from] = setTimeout(() => {
+        setTypingUsers((prev) => {
+          const next = new Set(prev);
+          next.delete(from);
+          return next;
+        });
+        delete typingTimeoutsRef.current[from];
+      }, 3000);
+    };
+    const normalizeList = (list) =>
+      Array.isArray(list)
+        ? list.map((item) => ({ ...item, id: getUserId(item) }))
+        : [];
 
+    const handleUsers = (list) => setUsers(normalizeList(list));
+
+    socket.on("messages", handleMessages);
+    socket.on("private message", handlePrivate);
+    socket.on("typing", handleTyping);
+    socket.on("users", handleUsers);
+    socket.on("getOnlineUsers", handleUsers);
+
+    // session handling is expected to be managed by the server/socket helper
+
+    return () => {
+      try {
+        socket.off("messages", handleMessages);
+        socket.off("private message", handlePrivate);
+        socket.off("typing", handleTyping);
+        socket.off("users", handleUsers);
+        socket.off("getOnlineUsers", handleUsers);
+      } catch (e) {}
+      Object.values(typingTimeoutsRef.current).forEach((t) => clearTimeout(t));
+      typingTimeoutsRef.current = {};
+    };
+  }, [socket, selectedUser]);
+
+  useEffect(() => {
+    if (!socket || !socket.connected) return;
+    socket.emit("messageList");
+    socket.emit("getOnlineUsers");
+  }, [socket]);
+
+  useEffect(() => {
+    return () => {
+      if (filePreview) {
+        URL.revokeObjectURL(filePreview);
+      }
+    };
+  }, [filePreview]);
 
   // Function to group messages by date
   const groupMessagesByDate = (messages) => {
@@ -150,10 +183,70 @@ useEffect(() => {
 
   const groupedMessages = groupMessagesByDate(userChats);
 
+  useEffect(() => {
+    const getId = (item) => item?.id || item?._id || item?.sender || item?.to;
+
+    const existingChats = (messageList || [])
+      .map((item) => ({
+        id: getId(item),
+        name:
+          item?.name ||
+          item?.username ||
+          item?.displayName ||
+          item?.otherName ||
+          item?.fromName ||
+          item?.toName ||
+          "Chat",
+        lastMessage: item?.lastMessage || item?.message || item?.latest || "",
+        updatedAt:
+          item?.updatedAt ||
+          item?.timestamp ||
+          item?.createdAt ||
+          item?.lastSeen ||
+          "",
+        newMessages: item?.unread || item?.newMessages || 0,
+        isTyping: false,
+        ...item,
+      }))
+      .filter((item) => item.id);
+
+    const online = (onlineUsers || [])
+      .filter((u) => getId(u))
+      .map((user) => ({
+        ...user,
+        id: getId(user),
+        name: user?.name || user?.username || "Chat",
+        isOnline: true,
+      }));
+
+    const merged = new Map();
+    existingChats.forEach((item) => merged.set(item.id, item));
+    online.forEach((user) => {
+      const existing = merged.get(user.id);
+      if (existing) {
+        merged.set(user.id, { ...existing, ...user, isOnline: true });
+      } else {
+        merged.set(user.id, user);
+      }
+    });
+
+    const sorted = Array.from(merged.values()).sort((a, b) => {
+      const timeA = a.updatedAt || "";
+      const timeB = b.updatedAt || "";
+      return (
+        timeB.localeCompare(timeA) ||
+        (b.newMessages || 0) - (a.newMessages || 0)
+      );
+    });
+
+    setUsers(sorted);
+  }, [messageList, onlineUsers]);
+
   // Scroll to bottom whenever userChats changes
   useEffect(() => {
     if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      chatContainerRef.current.scrollTop =
+        chatContainerRef.current.scrollHeight;
     }
   }, [userChats]);
 
@@ -166,755 +259,210 @@ useEffect(() => {
   };
 
   return (
-    <div className="fixed left-0 h-screen w-full">
-      <div className="flex gap-5 w-[80%] h-full mx-auto bg-slate-100 p-2">
-        <div className="lg:w-[35%] xl:w-[25%] bg-white h-full">
-          <Messageuser handleId={handleId} userId={userId.sender} users={users} />
+    <div className="min-h-[calc(100vh-5rem)] bg-slate-50 px-4 py-6 sm:px-6">
+      <div className="mx-auto flex min-h-[70vh] w-full max-w-7xl flex-col gap-4 lg:flex-row">
+        <div className="order-2 lg:order-1 lg:w-[30%]">
+          <div className="h-full overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm">
+            <Messageuser
+              handleId={handleId}
+              userId={getUserId(selectedUser)}
+              users={users.map((u) => ({
+                ...(u || {}),
+                isTyping: typingUsers.has(getUserId(u)),
+              }))}
+            />
+          </div>
         </div>
-        
-        {userId && (
-          <div className="relative w-full bg-white">
-            
-            {userChats?.length > 0 && (
-              <div ref={chatContainerRef} className="overflow-auto flex flex-col h-[80%] px-4 py-2 w-full">
-                {Object.keys(groupedMessages).map((date, index) => (
-                  <div key={index}>
-                    <div className="rounded-md mb-2 mx-auto bg-gray-300 py-1 px-2 max-w-max">
-                      {date}
-                    </div>
-                    {groupedMessages[date].map((chat) => (
-                      <div className={`flex ${chat.sender !== userId.sender
-                        ? "justify-end"
-                        : "justify-start"}`}>
-                        <div
-                          key={chat._id}
-                          className={`w-[30%] break-all mb-4 text-white flex flex-col justify-center px-4 rounded-tl-xl rounded-br-xl p-2 relative ${
-                            chat.sender === userId.sender
-                              ? " bg-[#2F0326]"
-                              : " bg-[#170625d1]"
-                          }`}
-                        >
-                          {chat.attachment ? (
-                            <div className="w-full bg-[#170625d1] rounded-xl p-2 flex justify-center">
-                              <button
-                                className="flex gap-2 justify-center items-end"
-                                onClick={() => handleClick(chat.attachment)}
-                              >
-                                Open File <FaFileAlt size={20} />
-                              </button>
-                            </div>
-                          ) : null}
-                          <p className="flex justify-between items-center ">
-                            {chat.message}
-                          </p>
-                          <p className="text-[12px] self-end mt-2">
-                            {dateFormat(chat.timestamp, "h:MM TT")}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
+        <div className="order-1 lg:order-2 lg:flex-1">
+          {selectedUser ? (
+            <div className="flex h-full min-h-[70vh] flex-col overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm">
+              <div className="border-b px-4 py-4 sm:px-5">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm uppercase tracking-[0.18em] text-slate-500">
+                      Conversation
+                    </p>
+                    <h2 className="text-xl font-semibold text-slate-900">
+                      {selectedUser?.name ||
+                        selectedUser?.displayName ||
+                        "Unnamed chat"}
+                    </h2>
+                    <p className="text-sm text-slate-500">
+                      {selectedUser?.isOnline ? "Online" : "Offline"}
+                    </p>
                   </div>
-                ))}
+                  {typingUsers.has(selectedUserId) && (
+                    <span className="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
+                      typing...
+                    </span>
+                  )}
+                </div>
               </div>
-            )}
-            {userChats.length === 0 && (
-              <div className="flex flex-col h-[80%] items-center justify-center w-full z-50">
-                <img
-                  src="image/noChat.png"
-                  alt="No Chat"
-                  className="ms-4 w-[30%] h-[200px]"
-                />
-              </div>
-            )}
 
-{filePreview && (
-              <div className="w-full absolute px-5 py-4 -top-2  h-[78%] bg-gray-200 z-10 mt-2">
-                <button
-                  className="font-bold text-lg"
-                  onClick={() => {
-                    setFilePreview(null);
-                    setSelectedFile(null);
-                 
-                  }}
+              <div className="flex-1 overflow-hidden px-3 py-3 sm:px-5">
+                <div
+                  ref={chatContainerRef}
+                  className="flex h-full flex-col gap-4 overflow-y-auto pr-2 pb-4"
                 >
-                  <IoClose className=""  size={30}/>
-                </button>
-                <div className="flex h-full justify-center items-center">
-                  {selectedFile.type === "image" ? (
-                      <div className="flex flex-col gap-y-10 items-center">
-                      <p>{selectedFile.name}</p>
-                    <img src={filePreview} alt="Preview" className="h-40" /></div>
-                  ) :  selectedFile.type === "application/pdf" ? (
-                    <div className="flex flex-col gap-y-10 items-center">
-                      <p>{selectedFile.name}</p>
-                      <AiOutlineFilePdf size={80} />
-                      
-                    </div>
+                  {userChats?.length > 0 ? (
+                    Object.keys(groupedMessages).map((date, index) => (
+                      <div key={index}>
+                        <div className="mx-auto mb-3 inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                          {date}
+                        </div>
+                        {groupedMessages[date].map((chat) => {
+                          const isIncoming =
+                            getUserId(chat) === getUserId(selectedUser);
+                          return (
+                            <div
+                              key={chat._id || chat.timestamp || Math.random()}
+                              className={`flex ${isIncoming ? "justify-start" : "justify-end"}`}
+                            >
+                              <div
+                                className={`max-w-[90%] lg:max-w-[80%] break-words rounded-3xl px-4 py-3 text-sm leading-6 shadow-sm ${
+                                  isIncoming
+                                    ? "bg-slate-100 text-slate-900"
+                                    : "bg-slate-900 text-white"
+                                }`}
+                              >
+                                {chat.attachment && (
+                                  <button
+                                    className="mb-3 inline-flex items-center gap-2 rounded-2xl bg-slate-800 px-3 py-2 text-xs font-medium text-white transition hover:bg-slate-700"
+                                    onClick={() => handleClick(chat.attachment)}
+                                  >
+                                    <FaFileAlt size={16} />
+                                    View attachment
+                                  </button>
+                                )}
+                                <p className="whitespace-pre-wrap break-words">
+                                  {chat.message}
+                                </p>
+                                <p className="mt-2 text-[11px] text-slate-400">
+                                  {dateFormat(
+                                    chat.timestamp ||
+                                      chat.createdAt ||
+                                      new Date(),
+                                    "h:MM TT",
+                                  )}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))
                   ) : (
-                    <div className="flex flex-col gap-y-10 items-center">
-                      <p>{selectedFile.name}</p>
-                      <FaFileAlt size={80} />
-                      
+                    <div className="flex min-h-[40vh] flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-slate-600">
+                      <p className="text-lg font-semibold">No messages yet</p>
+                      <p className="mt-2 text-sm">
+                        Select a conversation to start chatting.
+                      </p>
                     </div>
                   )}
                 </div>
               </div>
-            )}
-            <div className="bg-gray-200 sticky py-2 bottom-0 w-full border-b border-solid border-gray-50">
-              <div className="w-[75%] mx-auto flex justify-center items-center gap-4 relative">
-                <span className="absolute top-3 bottom-0 left-2 w-auto">
-                  <label htmlFor="file-upload">
+
+              {filePreview && (
+                <div className="border-t border-gray-200 bg-slate-50 px-4 py-4 sm:px-5">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        className="rounded-full bg-white p-2 text-slate-600 shadow-sm transition hover:bg-slate-100"
+                        onClick={() => {
+                          setFilePreview(null);
+                          setSelectedFile(null);
+                        }}
+                        aria-label="Remove attachment preview"
+                      >
+                        <IoClose size={20} />
+                      </button>
+                      <div>
+                        <p className="font-semibold text-slate-900">
+                          {selectedFile?.name}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          Preview attached file
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {selectedFile?.type?.startsWith("image/") ? (
+                        <img
+                          src={filePreview}
+                          alt="Preview"
+                          className="h-24 rounded-2xl object-contain"
+                        />
+                      ) : selectedFile?.type === "application/pdf" ? (
+                        <AiOutlineFilePdf
+                          size={48}
+                          className="text-slate-700"
+                        />
+                      ) : (
+                        <FaFileAlt size={48} className="text-slate-700" />
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="border-t border-gray-200 bg-slate-100 px-4 py-4 sm:px-5">
+                <div className="relative mx-auto flex w-full max-w-4xl items-center gap-3">
+                  <label
+                    htmlFor="file-upload"
+                    className="absolute left-3 text-slate-500 hover:text-slate-900"
+                  >
                     <IoIosAttach size={24} />
                   </label>
                   <input
                     id="file-upload"
                     type="file"
                     name="attachment"
-                    style={{ display: "none" }}
+                    className="hidden"
                     onChange={handleFileChange}
                   />
-                </span>
-
-                <input
-                  type="text"
-                  placeholder="Type Message..."
-                  className="border w-full pl-10 pr-20 py-3 rounded-lg"
-                  name="message"
-                  value={message}
-                  onChange={handleMessage}
-                  onKeyDown={handleKeyDown}
-                />
-
-                <div className="absolute bottom-1 right-2">
-                  {message || formdataValue ? (
-                    <button
-                      className="bg-black px-5 py-1 flex gap-2 items-center text-white rounded-lg h-10"
-                      onClick={handleSubmitMessage}
-                    >
-                      Send
-                      <BsFillSendFill />
-                    </button>
-                  ) : (
-                    <button
-                      className="bg-gray-300 px-5 py-1 flex gap-2 items-center text-white rounded-lg h-10 cursor-not-allowed"
-                      onClick={handleSubmitMessage}
-                      disabled
-                    >
-                      Send
-                      <BsFillSendFill />
-                    </button>
-                  )}
+                  <input
+                    type="text"
+                    placeholder="Type your message or attach a file..."
+                    aria-label="Message input"
+                    className="w-full rounded-full border border-gray-300 bg-white py-3 pl-12 pr-24 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+                    name="message"
+                    value={message}
+                    onChange={handleMessage}
+                    onKeyDown={handleKeyDown}
+                  />
+                  <button
+                    type="button"
+                    aria-label="Send message"
+                    onClick={handleSubmitMessage}
+                    disabled={!message.trim() && !selectedFile}
+                    className="absolute right-2 inline-flex h-10 items-center justify-center rounded-full bg-slate-900 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
+                  >
+                    Send <BsFillSendFill className="ml-2" />
+                  </button>
                 </div>
               </div>
             </div>
-          </div>
-        )}
-
-        {!userId && (
-          <div className="bg-[#aeabb11f] w-full flex justify-center items-center">
-            <img
-              src="image/chatimage.png"
-              alt="Chat"
-              className="ms-4 w-[70%] h-[600px]"
-            />
-          </div>
-        )}
+          ) : (
+            <div className="flex h-full min-h-[70vh] items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center shadow-sm">
+              <div>
+                <img
+                  src="image/chatimage.png"
+                  alt="Chat placeholder"
+                  className="mx-auto mb-6 h-40 w-40 object-contain"
+                />
+                <h2 className="text-2xl font-semibold text-slate-900">
+                  Select a conversation
+                </h2>
+                <p className="mt-2 text-sm text-slate-600">
+                  Choose a chat from the left panel to view your message history
+                  and continue talking.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// import { BsFillSendFill } from "react-icons/bs";
-// import Messageuser from "./User";
-// import { useEffect, useState } from "react";
-// import { Api_Url } from "../api/api";
-// import useAuth from "../../contexts/Auth";
-// import { FaFileAlt } from "react-icons/fa";
-// import { IoIosAttach } from "react-icons/io";
-// import socket from "../../socket";
-// import dateFormat from "dateformat";
-
-// export default function Message() {
-//   const [userNameAlreadySelected, setUsernameAlreadySelected] = useState(false);
-//   const [userId, setUserId] = useState(false);
-//   const [selectedFile, setSelectedFile] = useState(null);
-//   const [formdataValue, setFormdataValue] = useState(false);
-//   const [message, setMessages] = useState("");
-//   const [userChats, setUserChats] = useState([]);
-//   const [users, setUsers] = useState([]);
-//   const { cookies } = useAuth();
-
-//   const handleFileChange = (event) => {
-//     const file = event.target.files[0];
-//     setSelectedFile(file);
-//     setFormdataValue(true);
-//   };
-
-//   const handleClick = (pdfUrl) => {
-//     window.open(pdfUrl, "_blank");
-//   };
-
-//   const handleMessage = (e) => {
-//     setMessages(e.target.value);
-//   };
-
-//   const handleSubmitMessage = async () => {
-//     console.log("sending message");
-//     socket.emit("private message", { message, to: userId.sender });
-//     setMessages("");
-//   };
-
-//   const handleId = (id) => {
-//     setUserId({ sender: id });
-//     const to = id;
-//     console.log(id, "id ");
-//     socket.emit("messages", to);
-//   };
-
-//   const onMessages = () => {
-//     socket.on("messages", (data) => {
-//       console.log(data, "data");
-//       setUserChats(data);
-//     });
-//   };
-
-//   useEffect(() => {
-//     onMessages();
-
-//     socket.on("private message", (data) => {
-//       console.log(data, "new message received");
-//       setUserChats((prevChats) => [...prevChats, data]);
-//     });
-//   }, [setUserChats]);
-
-//   useEffect(() => {
-//     const sessionID = localStorage.getItem("sessionID");
-
-//     const username = cookies.name;
-//     const userId = cookies.userId;
-//     console.log(sessionID);
-
-//     if (sessionID) {
-//       console.log(sessionID, "sessionID");
-//       setUsernameAlreadySelected(true);
-//       socket.auth = { sessionID };
-//       socket.connect();
-//     } else {
-//       socket.auth = { username, userId };
-//       socket.connect();
-//     }
-
-//     socket.on("session", ({ sessionID, userID }) => {
-//       socket.auth = { sessionID };
-//       localStorage.setItem("sessionID", sessionID);
-//       socket.userID = userID;
-//     });
-
-//     socket.on("connect_error", (err) => {
-//       if (err.message === "invalid username") {
-//         setUsernameAlreadySelected(false);
-//       }
-//     });
-
-//     socket.on("users", (users) => {
-//       console.log(users, "socket users");
-//       setUsers(users);
-//     });
-
-//     return () => {
-//       socket.off("connect_error");
-//     };
-//   }, []);
-
-//   // Function to group messages by date
-//   const groupMessagesByDate = (messages) => {
-//     return messages.reduce((acc, message) => {
-//       const date = dateFormat(message.timestamp, "d mmmm yyyy");
-//       if (!acc[date]) {
-//         acc[date] = [];
-//       }
-//       acc[date].push(message);
-//       return acc;
-//     }, {});
-//   };
-
-//   const groupedMessages = groupMessagesByDate(userChats);
-//    // Handle "Enter" key press
-//    const handleKeyDown = (e) => {
-//     if (e.key === "Enter") {
-//       e.preventDefault();
-//       handleSubmitMessage();
-//     }
-//   };
-
-//   return (
-//     <div className="fixed left-0 h-screen w-full">
-//       <div className="flex gap-5 w-[80%] h-full mx-auto bg-slate-100 p-2">
-//         <div className="w-[25%] bg-white h-full">
-//           <Messageuser handleId={handleId} userId={userId.sender} users={users} />
-//         </div>
-
-//         {userId && (
-//           <div className="w-full bg-white">
-//             {userChats?.length > 0 && (
-//               <div className="overflow-auto flex flex-col h-[80%] px-4 py-2 w-full">
-//                 {Object.keys(groupedMessages).map((date, index) => (
-//                   <div key={index}>
-//                     <div className="rounded-md mb-2 mx-auto bg-gray-300 py-1 px-2 max-w-max">
-//                       {date}
-//                     </div>
-//                     {groupedMessages[date].map((chat) => (
-//                       <div className={`flex ${chat.sender !== userId.sender
-//                         ? "justify-end"
-//                         : "justify-start"}`}>
-//                       <div
-//                         key={chat._id}
-//                         className={`w-[30%] break-all mb-4 text-white flex flex-col justify-center px-4 rounded-tl-xl rounded-br-xl p-2 relative ${
-//                           chat.sender === userId.sender
-//                             ? " bg-[#2F0326]"
-//                             : " bg-[#170625d1]"
-//                         }`}
-//                       >
-//                         {chat.attachment ? (
-//                           <div className="w-full bg-[#170625d1] rounded-xl p-2 flex justify-center">
-//                             <button
-//                               className="flex gap-2 justify-center items-end"
-//                               onClick={() => handleClick(chat.attachment)}
-//                             >
-//                               Open File <FaFileAlt size={20} />
-//                             </button>
-//                           </div>
-//                         ) : null}
-//                         <p className="flex justify-between items-center">
-//                           {chat.message}
-//                         </p>
-//                         <p className="text-[12px] self-end -mt-3">
-//                           {dateFormat(chat.timestamp, "h:MM TT")}
-//                         </p>
-//                       </div>
-//                       </div>
-//                     ))}
-//                   </div>
-//                 ))}
-//               </div>
-//             )}
-//             {userChats.length === 0 && (
-//               <div className="flex flex-col h-[80%] items-center justify-center w-full z-50">
-//                 <img
-//                   src="image/noChat.png"
-//                   alt="No Chat"
-//                   className="ms-4 w-[30%] h-[200px]"
-//                 />
-//               </div>
-//             )}
-//             <div className="bg-gray-200 sticky py-2 bottom-0 w-full border-b border-solid border-gray-50">
-//               <div className="w-[75%] mx-auto flex justify-center items-center gap-4 relative">
-//                 <span className="absolute top-3 bottom-0 left-2 w-auto">
-//                   <label htmlFor="file-upload">
-//                     <IoIosAttach size={24} />
-//                   </label>
-//                   <input
-//                     id="file-upload"
-//                     type="file"
-//                     name="attachment"
-//                     style={{ display: "none" }}
-//                     onChange={handleFileChange}
-//                   />
-//                 </span>
-
-//                 <input
-//                   type="text"
-//                   placeholder="Type Message..."
-//                   className="border w-full pl-10 pr-20 py-3 rounded-lg"
-//                   name="message"
-//                   value={message}
-//                   onChange={handleMessage}
-//                   onKeyDown={handleKeyDown} // Add the keydown event listener
-//                 />
-
-//                 <div className="absolute bottom-1 right-2">
-//                   {message || formdataValue ? (
-//                     <button
-//                       className="bg-black px-5 py-1 flex gap-2 items-center text-white rounded-lg h-10"
-//                       onClick={handleSubmitMessage}
-//                     >
-//                       Send
-//                       <BsFillSendFill />
-//                     </button>
-//                   ) : (
-//                     <button
-//                       className="bg-gray-300 px-5 py-1 flex gap-2 items-center text-white rounded-lg h-10 cursor-not-allowed"
-//                       onClick={handleSubmitMessage}
-//                       disabled
-//                     >
-//                       Send
-//                       <BsFillSendFill />
-//                     </button>
-//                   )}
-//                 </div>
-//               </div>
-//             </div>
-//           </div>
-//         )}
-
-//         {!userId && (
-//           <div className="bg-[#aeabb11f] w-full flex justify-center items-center">
-//             <img
-//               src="image/chatimage.png"
-//               alt="Chat"
-//               className="ms-4 w-[70%] h-[600px]"
-//             />
-//           </div>
-//         )}
-//       </div>
-//     </div>
-//   );
-// }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// import { BsFillSendFill } from "react-icons/bs";
-// import Messageuser from "./User";
-// import { useEffect, useRef, useState } from "react";
-// import { Api_Url } from "../api/api";
-// import useAuth from "../../contexts/Auth";
-// import { FaCloudUploadAlt, FaFileAlt } from "react-icons/fa";
-// import { IoIosAttach } from "react-icons/io";
-// import socket from "../../socket";
-// import dateFormat from "dateformat";
-
-// export default function Message() {
-//   const [userNameAlreadySelected, setUsernameAlreadySelected] = useState(false);
-//   const [userId, setuserId] = useState(false);
-
-//   const [selectedFile, setSelectedFile] = useState(null);
-//   const [formdataValue, setFormdataValue] = useState(false);
-
-//   const handleFileChange = (event) => {
-//     const file = event.target.files[0];
-//     setSelectedFile(file);
-//     setFormdataValue(true);
-//   };
-
-//   const handleClick = (pdfUrl) => {
-//     window.open(pdfUrl, "_blank");
-//   };
-
-//   const [message, setMessages] = useState("");
-
-//   const [userChats, setUserChats] = useState([]);
-//   const [users, setUsers] = useState([]);
-//   const { cookies } = useAuth();
-//   const handelMessage = (e) => {
-//     setMessages(e.target.value);
-//   };
-//   const handelSubmitMessage = async () => {
-//     console.log("sending message");
-//     socket.emit("private message", { message, to: userId.sender });
-//     setMessages("");
-//     // try {
-//     //   if (selectedFile) {
-//     //     const formData = new FormData();
-//     //     formData.append("attachment", selectedFile);
-//     //     formData.append("message", messages);
-//     //     formData.append("receiver", userId.sender);
-//     //     setFormdataValue(formData);
-//     //     try {
-//     //       const response = await Api_Url.post("message", formData, {
-//     //         headers: {
-//     //           "Content-Type": "multipart/form-data",
-//     //           Authorization: `Bearer ${cookies?.token}`,
-//     //         },
-//     //       });
-
-//     //       setSelectedFile(null);
-//     //       setMessages("");
-//     //     } catch (error) {
-//     //       console.error("Error uploading file:", error);
-//     //     }
-//     //   } else {
-//     //     const response = await Api_Url.post(
-//     //       `message`,
-//     //       {
-//     //         message: messages,
-//     //         receiver: userId.sender,
-//     //       },
-//     //       {
-//     //         headers: {
-//     //           "Content-Type": "application/json",
-//     //           Authorization: `Bearer ${cookies?.token}`,
-//     //         },
-//     //       }
-//     //     );
-//     //     if (response.data.status === "success") {
-//     //       // toast.success(response.data.message);
-//     //       setMessages("");
-
-//     //     }
-//     //   }
-//     // } catch (error) {}
-//   };
-
-//   const handleId = (id) => {
-//     setuserId({ sender: id });
-//     const to = id;
-//     console.log(id, "id ");
-//     socket.emit("messages", to);
-//   };
-
-//   const onMessages = () => {
-//     socket.on("messages", (data) => {
-//       console.log(data, "data");
-//       setUserChats(data);
-//     });
-//   };
-
-//   useEffect(() => {
-//     onMessages();
-
-//     socket.on("private message", (data) => {
-//       console.log(data, "new message received");
-//       setUserChats((prevChats) => [...prevChats, data]);
-//     });
-//   }, [setUserChats]);
-
-//   useEffect(() => {
-//     const sessionID = localStorage.getItem("sessionID");
-
-//     const username = cookies.name;
-//     const userId = cookies.userId;
-//     console.log(sessionID);
-
-//     if (sessionID) {
-//       console.log(sessionID, "sesionid");
-//       setUsernameAlreadySelected(true);
-//       socket.auth = { sessionID };
-//       socket.connect();
-//       // console.log("socket connection")
-//     } else {
-//       socket.auth = { username, userId };
-//       socket.connect();
-//     }
-
-//     socket.on("session", ({ sessionID, userID }) => {
-//       socket.auth = { sessionID };
-//       localStorage.setItem("sessionID", sessionID);
-//       socket.userID = userID;
-//     });
-
-//     socket.on("connect_error", (err) => {
-//       if (err.message === "invalid username") {
-//         setUsernameAlreadySelected(false);
-//       }
-//     });
-//     socket.on("users", (users) => {
-//       console.log(users, "socket users");
-//       setUsers(users);
-//       //  users.forEach((user) => {
-
-//       //     setUsers((existingUsers) => {
-//       //       const userExists = existingUsers.some(
-//       //         (existingUser) => existingUser.userID === user.userID
-//       //       );
-//       //       if (userExists) {
-//       //         return existingUsers.map((existingUser) =>
-//       //           existingUser.userID === user.userID
-//       //             ? { ...existingUser, ...user }
-//       //             : existingUser
-//       //         );
-//       //       }
-//       //       user.self = user.userID === socket.userID;
-//       //       return [...existingUsers, user];
-//       //     });
-//       //   });
-//     });
-
-//     return () => {
-//       socket.off("connect_error");
-//     };
-//   }, []);
-
-  
-//   let lastRenderedDate = null;
-
-//   return (
-//     <div className="fixed  left-0 h-screen w-full">
-//       <div className="flex gap-5 w-[80%] h-full mx-auto bg-slate-100 p-2   ">
-//         <div className="w-[25%]  bg-white h-full">
-//           <Messageuser
-//             handleId={handleId}
-//             userId={userId.sender}
-//             users={users}
-//           />
-//         </div>
-
-//         {userId && (
-//           <div className=" w-full bg-white ">
-//             {userChats?.length > 0 && (
-//               <div className="overflow-auto flex flex-col h-[80%] px-4 py-2  w-full">
-//                 {userChats.map((chat, index) => {
-//                   const currentDate = dateFormat(chat.timestamp, "d mmmm yyyy");
-//                   const showDate = currentDate !== lastRenderedDate;
-//                   if (showDate) {
-//                     lastRenderedDate = currentDate;
-//                   }
-//                   return (
-//                     <>
-//                     {showDate && (
-//                         <div className="rounded-md mb-2 fixed z-10 left-[50%] bg-gray-300 py-1 px-2 max-w-max">
-//                           {currentDate}
-//                         </div>
-//                       )}
-//                       {/* <div
-//                         className={`rounded-md  mb-2 fixed z-10 left-[50%] bg-gray-300  py-1 px-2 max-w-max ${
-//                           index !== 0 && "hidden"
-//                         }`}
-//                       >
-//                         {dateFormat(chat.timestamp, "d mmmm yyyy")}
-//                       </div>
-//                       {messageDate=chat.timestamp} */}
-//                       <div
-//                         key={chat?._id}
-//                         className={`${
-//                           chat.sender === userId.sender
-//                             ? "self-start bg-[#2F0326]"
-//                             : "self-end bg-[#170625d1]"
-//                         } w-[30%] break-all mb-4  text-white flex flex-col justify-center px-4 rounded-tl-xl   rounded-br-xl  p-2   relative`}
-//                       >
-//                         {chat.attachment ? (
-//                           <div className="w-full bg-[#170625d1] rounded-xl p-2 flex justify-center ">
-//                             <button
-//                               className="flex gap-2 justify-center items-end"
-//                               onClick={() => handleClick(chat.attachment)}
-//                             >
-//                               Open File <FaFileAlt size={20} />
-//                             </button>
-//                           </div>
-//                         ) : null}
-//                         {/* <div className="w-full bg-[#170625d1] rounded-xl p-2 flex justify-center ">
-//                     <button className="flex gap-2 justify-center items-end" onClick={() => handleClick(chat.attachment)}>Open File <FaFileAlt size={20} /></button>
-//                     </div> */}
-
-//                         {/* <p >{chat.message}</p> */}
-//                         <p className="flex justify-between  items-center">
-//                           {chat.message}
-//                         </p>
-//                         <p className="text-[12px] self-end -mt-3">
-//                           {dateFormat(chat.timestamp, "h:MM TT")}
-//                         </p>
-
-//                         {/* {chat.message} */}
-//                       </div>
-//                       {/* <p  className={`${
-//                         chat.sender === userId.sender
-//                           ? "self-start"
-//                           : "self-end"} mb-4`}><small>{new Date(chat.timestamp).toLocaleString()}</small></p> */}
-//                     </>
-//                   );
-//                 })}
-//               </div>
-//             )}
-//             {userChats.length === 0 && (
-//               <div className="flex flex-col h-[80%] items-center justify-center w-full z-50   ">
-//                 <img
-//                   src="image/noChat.png"
-//                   alt="Notes"
-//                   className="ms-4 w-[30%] h-[200px]"
-//                 />
-//               </div>
-//             )}
-//             <div className="bg-gray-200 sticky py-2 bottom-0 w-full border-b border-solid border-gray-50">
-//               <div className="w-[75%] mx-auto   flex justify-center items-center  gap-4  relative">
-//                 <span className="absolute top-3 bottom-0 left-2 w-auto ">
-//                   <label htmlFor="file-upload">
-//                     <IoIosAttach size={24} />
-//                     {/* <span style={{ marginLeft: '8px' }}>{selectedFile ? selectedFile.name : 'Choose file'}</span> */}
-//                   </label>
-//                   <input
-//                     id="file-upload"
-//                     type="file"
-//                     // accept="application/pdf"
-//                     name="attachment"
-//                     style={{ display: "none" }}
-//                     onChange={handleFileChange}
-//                   />
-//                   {/* <button onClick={handleFileUpload} className="z-10">Upload</button> */}
-//                 </span>
-
-//                 <input
-//                   type="text"
-//                   placeholder="Type Message..."
-//                   className="border w-full pl-10 pr-20 py-3 rounded-lg"
-//                   name="message"
-//                   value={message}
-//                   onChange={handelMessage}
-//                 />
-
-//                 <div className="absolute  bottom-1 right-2 ">
-//                   {message || formdataValue ? (
-//                     <button
-//                       className="bg-black px-5 py-1 flex gap-2 items-center text-white rounded-lg h-10"
-//                       onClick={handelSubmitMessage}
-//                     >
-//                       Send
-//                       <BsFillSendFill />
-//                     </button>
-//                   ) : (
-//                     <button
-//                       className="bg-gray-300 px-5 py-1 flex gap-2 items-center text-white rounded-lg h-10 cursor-not-allowed"
-//                       onClick={handelSubmitMessage}
-//                       disabled
-//                     >
-//                       Send
-//                       <BsFillSendFill />
-//                     </button>
-//                   )}
-//                 </div>
-//               </div>
-//             </div>
-//           </div>
-//         )}
-
-//         {!userId && (
-//           <div className="bg-[#aeabb11f] w-full flex justify-center items-center">
-//             <img
-//               src="image/chatimage.png"
-//               alt="Notes"
-//               className="ms-4 w-[70%] h-[600px]"
-//             />
-//           </div>
-//         )}
-//       </div>
-//     </div>
-//   );
-// }

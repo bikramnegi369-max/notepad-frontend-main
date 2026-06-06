@@ -1,5 +1,5 @@
 import React from "react";
-import { Api_Url } from "../api/api";
+import Api_Url from "../api/api";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { useFormik } from "formik";
@@ -8,7 +8,7 @@ import useAuth from "../../contexts/Auth";
 import { useLocation, useNavigate } from "react-router-dom";
 
 export default function Login() {
-  const { setCookie } = useAuth();
+  const { login, setCookie } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const from = location.state?.from?.pathname || "/";
@@ -32,16 +32,19 @@ export default function Login() {
           },
         });
         if (response.data.status === "success") {
-          setCookie("token", response.data.data.token, {
+          const token = response.data.data.token;
+          // use auth helper to set token and axios header
+          login(token, {
             path: "/",
-            expires: new Date(new Date().getTime() + 60 * 60 * 1000),
+            expires: new Date(Date.now() + 60 * 60 * 1000),
           });
+          // store basic user info in cookies as before
           setCookie("name", response.data.data.name, { path: "/" });
           setCookie("userId", response.data.data.id, { path: "/" });
           toast.success(response.data.message);
           setTimeout(() => {
             navigate(from, { replace: true });
-          }, 2000);
+          }, 1200);
         } else {
           toast.error(response.data.message);
         }

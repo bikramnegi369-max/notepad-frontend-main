@@ -1,17 +1,16 @@
-import React from 'react'
-import { Outlet } from 'react-router-dom'
-import Sidebar from '../layout/Header'
+import React from "react";
+import { Outlet } from "react-router-dom";
+import Header from "../layout/Header";
+
 const DashboardLayout = () => {
   return (
-     <>
-      <div id="sidebar-top-line"></div>
-            <div id="sidebar-right-line"></div>
-            <div id="sidebar-bottom-line"></div>
-              <Sidebar />
-              <div className='w-[100%] ml-auto px-10 py-8 mt-14'>
-                <Outlet />
-              </div>
-    </>
-  )
-}
-export default DashboardLayout
+    <div className="min-h-screen bg-slate-50 text-slate-900">
+      <Header />
+      <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8 mt-24">
+        <Outlet />
+      </main>
+    </div>
+  );
+};
+
+export default DashboardLayout;

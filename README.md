@@ -1,6 +1,23 @@
-# Getting Started with Create React App
+# Notepad Frontend
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A React frontend for a real-time note and chat application. This app supports:
+
+- note creation, editing, and attachments
+- automatic draft persistence across sessions
+- server-synced draft storage
+- realtime chat with typing indicators and unread counts
+- auth through cookie-based tokens with Axios interceptor support
+
+## Environment
+
+Create a `.env` file in the project root with the following values:
+
+```env
+REACT_APP_API_URL=https://your-api.example.com/api
+REACT_APP_SOCKET_URL=https://your-socket.example.com
+```
+
+If `REACT_APP_SOCKET_URL` is not provided, the socket URL is derived from `REACT_APP_API_URL` by removing a trailing `/api` segment.
 
 ## Available Scripts
 

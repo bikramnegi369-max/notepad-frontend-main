@@ -2,66 +2,69 @@
 // import React, { createContext, useContext, useEffect, useState } from 'react';
 // import { io } from 'socket.io-client';
 
-import { createContext, useContext, useEffect, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import useAuth from "./Auth";
-import { io } from "socket.io-client";
+import { createSocket, disconnectSocket } from "../socket";
 
-// const SocketContext = createContext();
+export const SocketContext = createContext(null);
 
-// export const useSocket = () => useContext(SocketContext);
-
-// export const SocketProvider = ({ children, userId }) => {
-//     const [socket, setSocket] = useState(null);
-
-//     useEffect(() =>
-//         const newSocket = io('http://localhost:4444');
-//         setSocket(newSocket);
-
-//         if (userId) {
-//             newSocket.emit('register', userId);
-//         }
-
-//         return () => newSocket.close();
-//     }, [userId]);
-
-//     return (
-//         <SocketContext.Provider value={socket}>
-//             {children}
-//         </SocketContext.Provider>
-//     );
-// };
-
-export const SocketContext = createContext();
-
-export const userSocketContext = () => {
-  // return useContext(SocketContext)
+export const useSocket = () => {
+  return useContext(SocketContext);
 };
 
 export const SocketContextProvider = ({ children }) => {
-  const [socket, setSocket] = useState(null);
-  const [onlineUsers, setOnlineUsers] = useState(null);
   const { cookies } = useAuth();
-  useEffect(() => {
-    if (cookies?.token) {
-      const socket = io("https://4frnn03l-3000.inc1.devtunnels.ms/", {
-        query: {
-          userId: cookies.id,
-        },
-      });
-      setSocket(socket);
-      socket.on("getOnlineUsers", (user) => {
-        setOnlineUsers(user);
-      });
-      return () => socket.close();
-    } else {
-      if (socket) {
-        socket.close();
-        setSocket(null);
-      }
-    }
+  const socketRef = useRef(null);
+  const [socket, setSocket] = useState(null);
+  const [onlineUsers, setOnlineUsers] = useState([]);
+
+  const handleOnline = useCallback((users) => {
+    setOnlineUsers(users || []);
   }, []);
+
+  const connect = useCallback(() => {
+    if (!cookies?.token) return null;
+    let s = socketRef.current;
+    if (!s) {
+      s = createSocket(cookies.token);
+      socketRef.current = s;
+      setSocket(s);
+      s.on("getOnlineUsers", handleOnline);
+      s.on("users", handleOnline);
+    }
+    if (!s.connected) s.connect();
+    return s;
+  }, [cookies?.token, handleOnline]);
+
+  const disconnect = useCallback(() => {
+    if (!socketRef.current) return;
+    try {
+      socketRef.current.off("getOnlineUsers", handleOnline);
+      socketRef.current.off("users", handleOnline);
+    } catch (e) {}
+    disconnectSocket();
+    socketRef.current = null;
+    setSocket(null);
+    setOnlineUsers([]);
+  }, [handleOnline]);
+
+  useEffect(() => {
+    if (!cookies?.token) {
+      disconnect();
+    }
+  }, [cookies?.token, disconnect]);
+
   return (
-    <SocketContext.Provider value={{ socket, onlineUsers }}>
+    <SocketContext.Provider
+      value={{ socket, onlineUsers, connect, disconnect }}
+    >
       {children}
     </SocketContext.Provider>
   );

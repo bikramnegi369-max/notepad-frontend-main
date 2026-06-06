@@ -1,108 +1,107 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ToastContainer, toast } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
-import useAuth from "../../contexts/Auth";
-import { Api_Url } from "../api/api";
+import { ToastContainer, toast } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
+import Api_Url from "../api/api";
+import { IoChevronBackOutline, IoSaveOutline } from "react-icons/io5";
 
 export default function UpdateNote() {
-    
-    const [updateNotedata, setUpdateNotedata] = useState({});
-    const navigate = useNavigate();
-    const { id } = useParams();
-    console.log(id)
-    const { cookies } = useAuth();
-    const handleSingleNote = async () => {
-        try {
-            const response = await Api_Url.get(`viewnote/${id}`, {  
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${cookies?.token}`
-                }
-            });
-            setUpdateNotedata(response.data.data);
-        } catch (error) {
-            toast.error("Failed to fetch the note data.");
-        }
+  const [updateNotedata, setUpdateNotedata] = useState({});
+  const [isSaving, setIsSaving] = useState(false);
+  const navigate = useNavigate();
+  const { id } = useParams();
+
+  useEffect(() => {
+    const fetchNote = async () => {
+      try {
+        const response = await Api_Url.get(`viewnote/${id}`);
+        setUpdateNotedata(response.data.data);
+      } catch (error) {
+        toast.error("Failed to fetch the note data.");
+      }
     };
 
-    useEffect(() => {
-        handleSingleNote();
-    }, [id]); // Add id as a dependency to ensure it runs when id changes
-    
-    const handleChange = (e) => {
-        const { name, value } = e.target;
-        setUpdateNotedata({ ...updateNotedata, [name]: value });
-        console.log(name, value);
-    };
-
-    const handleSave = async () => {
-        const note = updateNotedata;
-       
-        const response = await Api_Url.put(`updatenote/${id}`, note, {
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${cookies?.token}`
-            }
-        });
-        if (response.data.status === 'success') {
-            toast.success(response.data.message,
-                {
-                    position: "top-right",
-                    autoClose: 2000,
-                    hideProgressBar: false,
-                    closeOnClick: true,
-                    pauseOnHover: true,
-                    draggable: true,
-                    progress: undefined,
-                }
-            );
-            navigate('/allnotes')
-        } else {
-            toast.error(response.data.message);
-        }
+    if (id) {
+      fetchNote();
     }
-    return (
-        <div>
-            <ToastContainer />
-            <div className="w-[100%] h-[600px] flex flex-col justify-between bg-[#c8c9cb] rounded-[30px] p-8">
-                <div>
-                    <div className="flex justify-between items-center">
-                        <div>
-                            <h1 className="font-semibold text-black ps-5 pt-3">
-                                Update Note
-                                {/* (
-                                <input
-                                    className="border-b-2 bg-[#282c34] text-white focus:outline-none focus:ring-2 border-none focus:ring-[#282c34]"
-                                    type="text"
-                                    placeholder="Enter Note Title Here"
-                                    value={updateNotedata.title || ""}
-                                    onChange={(e) => handleChange(e)}
-                                    name="title"
-                                />
-                                ) */}
-                            </h1>
-                        </div>
-                        <div className="">
-                        <button
-                               className="bg-green-600 px-4 py-2 rounded-lg text-white" onClick={handleSave}
-                            >
-                                {/* <Popup handleSave={formik.handleSubmit} disabled={!formik.values.title} title={formik.values.title} setTitle={formik.handleChange} /> */}
-                                Update
-                            </button>
-                        </div>
-                    </div>
-                    <div className="p-4">
-                        <textarea
-                            className="w-full h-[450px] p-2 border rounded-lg bg-[#ecedef] text-black focus:outline-none focus:ring-2 border-none focus:ring-gray-400"
-                            placeholder="Enter Note Content Here....."
-                            onChange={handleChange}
-                            name="content"
-                            value={updateNotedata.content || ""}
-                        />
-                    </div>
-                </div>
+  }, [id]);
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setUpdateNotedata({ ...updateNotedata, [name]: value });
+    console.log(name, value);
+  };
+
+  const handleSave = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      const note = updateNotedata;
+      if (!note?.content || !note.content.trim()) {
+        toast.error("Content cannot be empty");
+        setIsSaving(false);
+        return;
+      }
+      const response = await Api_Url.put(`updatenote/${id}`, note, {
+        headers: { "Content-Type": "application/json" },
+      });
+      if (response.data?.status === "success") {
+        toast.success(response.data.message || "Note updated.");
+        navigate("/allnotes");
+      } else {
+        toast.error(response.data?.message || "Failed to update note.");
+      }
+    } catch (error) {
+      const message = error.response?.data?.message || "Failed to update note.";
+      toast.error(message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+  return (
+    <div className="min-h-[calc(100vh-5rem)] bg-slate-50 px-4 py-6 sm:px-6">
+      <ToastContainer />
+      <div className="mx-auto flex min-h-[75vh] w-full max-w-5xl flex-col rounded-3xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+        <div className="sticky top-0 z-10 flex flex-col gap-3 border-b border-gray-200 bg-white/80 px-4 py-4 backdrop-blur-md sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate(-1)}
+              className="grid h-9 w-9 place-items-center rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
+            >
+              <IoChevronBackOutline size={20} />
+            </button>
+            <div>
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Editing Note
+              </p>
+              <h1 className="text-xl font-bold text-gray-950">Update Note</h1>
             </div>
+          </div>
+          <button
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-green-600 px-6 text-sm font-bold text-white shadow-sm transition-all hover:bg-green-700 active:scale-95 sm:h-11 disabled:opacity-60"
+            onClick={handleSave}
+            disabled={isSaving}
+          >
+            <IoSaveOutline size={18} />
+            {isSaving ? "Saving..." : "Update Changes"}
+          </button>
         </div>
-    );
+
+        <div className="flex-1 px-4 py-6 sm:px-10">
+          <textarea
+            className="min-h-[50vh] w-full flex-1 resize-none border-none bg-transparent p-0 text-base leading-7 text-gray-950 outline-none transition placeholder:text-gray-400 sm:min-h-[60vh] sm:text-lg"
+            placeholder="Start typing your thoughts..."
+            onChange={handleChange}
+            name="content"
+            value={updateNotedata.content || ""}
+          />
+        </div>
+        <div className="border-t border-gray-100 bg-gray-50 px-6 py-3">
+          <p className="text-xs text-gray-400">
+            All changes are strictly saved to the database upon clicking Update.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
 }
