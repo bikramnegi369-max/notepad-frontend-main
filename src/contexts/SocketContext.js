@@ -30,10 +30,14 @@ export const SocketContextProvider = ({ children }) => {
   }, []);
 
   const connect = useCallback(() => {
-    if (!cookies?.token) return null;
+    // Ensure both token and name exist to prevent "invalid username" handshake errors
+    if (!cookies?.token || !cookies?.name) return null;
     let s = socketRef.current;
     if (!s) {
-      s = createSocket(cookies.token);
+      s = createSocket({
+        token: cookies.token,
+        username: cookies.name,
+      });
       socketRef.current = s;
       setSocket(s);
       s.on("getOnlineUsers", handleOnline);
@@ -41,7 +45,7 @@ export const SocketContextProvider = ({ children }) => {
     }
     if (!s.connected) s.connect();
     return s;
-  }, [cookies?.token, handleOnline]);
+  }, [cookies?.token, cookies?.name, handleOnline]);
 
   const disconnect = useCallback(() => {
     if (!socketRef.current) return;

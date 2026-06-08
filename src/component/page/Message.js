@@ -1,4 +1,4 @@
-import { BsFillSendFill } from "react-icons/bs";
+import { BsSendFill } from "react-icons/bs";
 import Messageuser from "./User";
 import { useEffect, useRef, useState } from "react";
 import { FaFileAlt } from "react-icons/fa";
@@ -7,8 +7,9 @@ import { useSocket } from "../../contexts/SocketContext";
 import useListMessage from "../../contexts/useListMessage";
 import { getApiRootUrl } from "../../component/api/api";
 import dateFormat from "dateformat";
-import { IoClose } from "react-icons/io5";
-import { AiOutlineFilePdf } from "react-icons/ai";
+import { IoClose, IoChevronBack } from "react-icons/io5";
+import { AiFillFilePdf } from "react-icons/ai";
+import useAuth from "../../contexts/Auth";
 
 const getUserId = (item) =>
   item?.id || item?._id || item?.sender || item?.to || item?.from || null;
@@ -25,8 +26,12 @@ export default function Message() {
   const [filePath, setFilePath] = useState(null);
   const [filePreview, setFilePreview] = useState();
   const { socket, onlineUsers, connect, disconnect } = useSocket();
+  const { cookies } = useAuth();
   const messageList = useListMessage();
   const selectedUserId = getUserId(selectedUser);
+  const isSelectedUserOnline = users.find(
+    (u) => getUserId(u) === selectedUserId,
+  )?.isOnline;
 
   useEffect(() => {
     connect();
@@ -50,9 +55,10 @@ export default function Message() {
   };
 
   const handleMessage = (e) => {
-    setMessage(e.target.value);
+    const value = e.target.value;
+    setMessage(value);
     const targetId = getUserId(selectedUser);
-    if (targetId && socket && socket.connected) {
+    if (targetId && socket && socket.connected && value.trim() !== "") {
       socket.emit("typing", { to: targetId });
     }
   };
@@ -68,11 +74,13 @@ export default function Message() {
         selectedFile,
         filePath,
         to: targetId,
+        sender: cookies.name, // Explicitly add sender for consistency
       });
     }
     setMessage("");
     setFilePreview(null);
     setSelectedFile(null);
+    setFilePath(null);
   };
 
   const handleId = (user) => {
@@ -81,6 +89,8 @@ export default function Message() {
     setSelectedUser(selected);
     setFilePreview(null);
     setSelectedFile(null);
+    setFilePath(null);
+    setMessage("");
     const targetId = selected.id;
     const s = socket;
     if (s && s.connected) {
@@ -259,10 +269,13 @@ export default function Message() {
   };
 
   return (
-    <div className="min-h-[calc(100vh-5rem)] bg-slate-50 px-4 py-6 sm:px-6">
-      <div className="mx-auto flex min-h-[70vh] w-full max-w-7xl flex-col gap-4 lg:flex-row">
-        <div className="order-2 lg:order-1 lg:w-[30%]">
-          <div className="h-full overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm">
+    <div className="h-[calc(100vh-5.5rem)] bg-slate-50 lg:px-6 lg:py-6">
+      <div className="mx-auto flex h-full w-full max-w-7xl flex-col gap-4 lg:flex-row">
+        {/* User List Panel - Hidden on mobile when a user is selected */}
+        <div
+          className={`h-full transition-all duration-300 lg:w-[30%] ${selectedUser ? "hidden lg:block" : "w-full"}`}
+        >
+          <div className="h-full overflow-hidden lg:rounded-3xl border-slate-200 bg-white shadow-md lg:border">
             <Messageuser
               handleId={handleId}
               userId={getUserId(selectedUser)}
@@ -273,23 +286,37 @@ export default function Message() {
             />
           </div>
         </div>
-        <div className="order-1 lg:order-2 lg:flex-1">
+
+        {/* Chat Panel - Full screen on mobile with improved visual depth */}
+        <div
+          className={`lg:flex-1 h-full transition-all duration-300 ${!selectedUser ? "hidden lg:block" : "w-full"}`}
+        >
           {selectedUser ? (
-            <div className="flex h-full min-h-[70vh] flex-col overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm">
-              <div className="border-b px-4 py-4 sm:px-5">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-sm uppercase tracking-[0.18em] text-slate-500">
-                      Conversation
-                    </p>
-                    <h2 className="text-xl font-semibold text-slate-900">
-                      {selectedUser?.name ||
-                        selectedUser?.displayName ||
-                        "Unnamed chat"}
-                    </h2>
-                    <p className="text-sm text-slate-500">
-                      {selectedUser?.isOnline ? "Online" : "Offline"}
-                    </p>
+            <div className="flex h-full flex-col overflow-hidden lg:rounded-3xl border-slate-200 bg-white shadow-md lg:border">
+              <div className="border-b px-4 py-3 sm:px-5 bg-white/80 backdrop-blur-md sticky top-0 z-10">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setSelectedUser(null)}
+                      className="lg:hidden p-2 -ml-2 text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
+                    >
+                      <IoChevronBack size={24} />
+                    </button>
+                    <div>
+                      <h2 className="text-lg font-bold text-slate-900 leading-tight">
+                        {selectedUser?.name ||
+                          selectedUser?.displayName ||
+                          "Unnamed chat"}
+                      </h2>
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={`h-2 w-2 rounded-full ${isSelectedUserOnline ? "bg-emerald-500" : "bg-slate-300"}`}
+                        ></span>
+                        <p className="text-xs font-medium text-slate-500">
+                          {isSelectedUserOnline ? "Active now" : "Offline"}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                   {typingUsers.has(selectedUserId) && (
                     <span className="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
@@ -307,22 +334,25 @@ export default function Message() {
                   {userChats?.length > 0 ? (
                     Object.keys(groupedMessages).map((date, index) => (
                       <div key={index}>
-                        <div className="mx-auto mb-3 inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
-                          {date}
+                        <div className="flex justify-center my-4">
+                          <span className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                            {date}
+                          </span>
                         </div>
                         {groupedMessages[date].map((chat) => {
                           const isIncoming =
-                            getUserId(chat) === getUserId(selectedUser);
+                            getUserId(chat) !== cookies.userId &&
+                            getUserId(chat) !== cookies.name;
                           return (
                             <div
                               key={chat._id || chat.timestamp || Math.random()}
                               className={`flex ${isIncoming ? "justify-start" : "justify-end"}`}
                             >
                               <div
-                                className={`max-w-[90%] lg:max-w-[80%] break-words rounded-3xl px-4 py-3 text-sm leading-6 shadow-sm ${
+                                className={`max-w-[85%] lg:max-w-[70%] break-words rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed shadow-sm ${
                                   isIncoming
-                                    ? "bg-slate-100 text-slate-900"
-                                    : "bg-slate-900 text-white"
+                                    ? "bg-slate-100 text-slate-800 rounded-bl-none border border-slate-200"
+                                    : "bg-blue-600 text-white rounded-br-none"
                                 }`}
                               >
                                 {chat.attachment && (
@@ -337,7 +367,9 @@ export default function Message() {
                                 <p className="whitespace-pre-wrap break-words">
                                   {chat.message}
                                 </p>
-                                <p className="mt-2 text-[11px] text-slate-400">
+                                <p
+                                  className={`mt-1 text-[10px] text-right ${isIncoming ? "text-slate-400" : "text-blue-100"}`}
+                                >
                                   {dateFormat(
                                     chat.timestamp ||
                                       chat.createdAt ||
@@ -394,10 +426,7 @@ export default function Message() {
                           className="h-24 rounded-2xl object-contain"
                         />
                       ) : selectedFile?.type === "application/pdf" ? (
-                        <AiOutlineFilePdf
-                          size={48}
-                          className="text-slate-700"
-                        />
+                        <AiFillFilePdf size={48} className="text-slate-700" />
                       ) : (
                         <FaFileAlt size={48} className="text-slate-700" />
                       )}
@@ -406,11 +435,11 @@ export default function Message() {
                 </div>
               )}
 
-              <div className="border-t border-gray-200 bg-slate-100 px-4 py-4 sm:px-5">
-                <div className="relative mx-auto flex w-full max-w-4xl items-center gap-3">
+              <div className="border-t border-gray-200 bg-white p-3 sm:p-4">
+                <div className="relative mx-auto flex w-full items-center gap-2">
                   <label
                     htmlFor="file-upload"
-                    className="absolute left-3 text-slate-500 hover:text-slate-900"
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-900 cursor-pointer"
                   >
                     <IoIosAttach size={24} />
                   </label>
@@ -425,7 +454,7 @@ export default function Message() {
                     type="text"
                     placeholder="Type your message or attach a file..."
                     aria-label="Message input"
-                    className="w-full rounded-full border border-gray-300 bg-white py-3 pl-12 pr-24 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+                    className="w-full rounded-full border-slate-200 bg-slate-100 py-3 pl-5 pr-12 text-[15px] text-slate-900 outline-none focus:bg-white focus:ring-2 focus:ring-blue-500/20 transition-all border"
                     name="message"
                     value={message}
                     onChange={handleMessage}
@@ -436,9 +465,9 @@ export default function Message() {
                     aria-label="Send message"
                     onClick={handleSubmitMessage}
                     disabled={!message.trim() && !selectedFile}
-                    className="absolute right-2 inline-flex h-10 items-center justify-center rounded-full bg-slate-900 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
+                    className="absolute right-1.5 flex h-9 w-9 items-center justify-center rounded-full bg-blue-600 text-white transition-all hover:bg-blue-700 active:scale-90 disabled:bg-slate-200 disabled:text-slate-400"
                   >
-                    Send <BsFillSendFill className="ml-2" />
+                    <BsSendFill size={18} />
                   </button>
                 </div>
               </div>

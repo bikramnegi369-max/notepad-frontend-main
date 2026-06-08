@@ -98,7 +98,7 @@ export default function UpdateNote() {
         </div>
         <div className="border-t border-gray-100 bg-gray-50 px-6 py-3">
           <p className="text-xs text-gray-400">
-            All changes are strictly saved to the database upon clicking Update.
+            All changes are strictly saved to the server upon clicking Update.
           </p>
         </div>
       </div>

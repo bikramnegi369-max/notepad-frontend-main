@@ -6,16 +6,16 @@ const getId = (item) =>
 export default function Messageuser({ handleId, userId, users }) {
   const { cookies } = useAuth();
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-3xl bg-slate-50 p-3 sm:p-4">
-      <div className="mb-4 flex items-center justify-between gap-3">
+    <div className="flex h-full flex-col overflow-hidden bg-white p-3 sm:p-4">
+      <div className="mb-6 flex items-center justify-between gap-3 px-1">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900">Chats</h1>
-          <p className="text-sm text-slate-500">
-            Tap a contact to open the conversation.
-          </p>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+            Messages
+          </h1>
         </div>
-        <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">
-          Live
+        <span className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-600 border border-emerald-100">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+          Online
         </span>
       </div>
       <div className="flex-1 overflow-y-auto pr-1">
@@ -43,43 +43,57 @@ export default function Messageuser({ handleId, userId, users }) {
                 onClick={() => handleId(e)}
               >
                 <div
-                  className={`pb-3 flex gap-4 items-start rounded-2xl transition ${
+                  className={`flex gap-4 items-center rounded-2xl transition-all duration-200 ${
                     isActive
-                      ? "bg-[#2F0326] text-white p-3"
-                      : "border-b p-3 hover:bg-slate-50"
+                      ? "bg-blue-50 text-blue-900 p-4 shadow-sm ring-1 ring-blue-100"
+                      : "p-4 hover:bg-slate-50"
                   }`}
                 >
-                  <div
-                    className={`h-10 w-10 rounded-full flex items-center justify-center text-lg font-semibold ${
-                      isActive
-                        ? "bg-white text-[#280f23]"
-                        : "bg-[#280f23] text-white"
-                    }`}
-                  >
-                    {displayName.charAt(0).toUpperCase()}
+                  <div className="relative shrink-0">
+                    <div
+                      className={`h-12 w-12 rounded-full flex items-center justify-center text-lg font-bold shadow-sm transition-colors ${
+                        isActive
+                          ? "bg-blue-600 text-white"
+                          : "bg-slate-200 text-slate-600"
+                      }`}
+                    >
+                      {displayName.charAt(0).toUpperCase()}
+                    </div>
+                    {e?.isOnline && (
+                      <span className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500 shadow-sm"></span>
+                    )}
                   </div>
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 py-1">
                     <div className="flex items-center justify-between gap-2">
-                      <p className="truncate text-sm font-semibold">
+                      <p
+                        className={`truncate text-[15px] font-bold ${isActive ? "text-blue-900" : "text-slate-800"}`}
+                      >
                         {displayName}
                       </p>
+                      {time && (
+                        <span className="text-[10px] font-medium text-slate-400 whitespace-nowrap">
+                          {time}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between mt-0.5">
+                      <p
+                        className={`truncate text-sm ${isActive ? "text-blue-700/80" : "text-slate-500"}`}
+                      >
+                        {preview}
+                      </p>
                       {e?.newMessages > 0 && (
-                        <div className="flex justify-center items-center text-xs bg-[#e1dde1] text-[#280f23] w-6 h-6 rounded-full">
+                        <div className="flex justify-center items-center text-[10px] font-bold bg-blue-600 text-white min-w-[20px] h-5 px-1.5 rounded-full shadow-sm">
                           {e?.newMessages}
                         </div>
                       )}
                     </div>
-                    <p className="truncate text-xs text-gray-500 mt-1">
-                      {preview}
-                    </p>
-                    <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-gray-400">
-                      {e?.isOnline && (
-                        <span className="text-green-600">Online</span>
-                      )}
+                    <div className="mt-1.5 flex items-center gap-2">
                       {e?.isTyping && (
-                        <span className="text-slate-500">typing...</span>
+                        <span className="text-[10px] font-bold text-blue-500 italic animate-pulse">
+                          typing...
+                        </span>
                       )}
-                      {time && <span>{time}</span>}
                     </div>
                   </div>
                 </div>

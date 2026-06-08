@@ -1,7 +1,7 @@
 // src/components/Header.js
 import React, { useState } from "react";
 import { FiMenu, FiX } from "react-icons/fi";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import useAuth from "../../contexts/Auth";
 
 const navLinks = [
@@ -13,6 +13,7 @@ const navLinks = [
 
 const Header = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { cookies, removeCookie, setAuth } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -57,22 +58,29 @@ const Header = () => {
           aria-hidden={!menuOpen}
         >
           <ul className="flex flex-col gap-2 px-2 pb-4 sm:flex-row sm:items-center sm:gap-4 sm:px-0 sm:pb-0">
-            {navLinks.map((link) => (
-              <li key={link.href}>
-                <Link
-                  to={link.href}
-                  className="block rounded-full px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 sm:px-3"
-                  onClick={() => setMenuOpen(false)}
-                >
-                  {link.label}
-                </Link>
-              </li>
-            ))}
+            {navLinks.map((link) => {
+              const isActive = location.pathname === link.href;
+              return (
+                <li key={link.href}>
+                  <Link
+                    to={link.href}
+                    className={`block rounded-full px-4 py-2 text-sm font-medium transition-all duration-200 sm:px-3 ${
+                      isActive
+                        ? "bg-slate-100 text-slate-900 shadow-sm ring-1 ring-slate-200/50"
+                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                    }`}
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    {link.label}
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         </nav>
 
-        <div className="flex flex-1 items-center justify-end gap-3 sm:justify-between">
-          <p className="hidden min-w-[140px] text-sm font-medium text-slate-600 sm:block">
+        <div className="flex items-center justify-end gap-3">
+          <p className="hidden w-fit text-sm font-medium text-slate-600 sm:block">
             Hi, {cookies?.name ?? "User"}
           </p>
           <button

@@ -197,8 +197,9 @@ export default function Notecreate() {
   const syncDraftToStorage = useCallback(
     async (draft, draftAttachments) => {
       const content = draft?.content?.trim();
+      const hasAttachments = draftAttachments && draftAttachments.length > 0;
 
-      if (!content) {
+      if (!content && !hasAttachments) {
         if (!draftId) {
           setHasSavedDraft(loadLocalDrafts().length > 0);
           return;
@@ -253,7 +254,15 @@ export default function Notecreate() {
       const currentAttachments = attachments || [];
 
       if (!content && currentAttachments.length === 0) {
-        syncDraftToStorage(values, []);
+        await syncDraftToStorage(values, []);
+        try {
+          setIsDraftSaving(true);
+          await Api_Url.delete("draft");
+        } catch (error) {
+          // Silent fail for auto-cleanup
+        } finally {
+          setIsDraftSaving(false);
+        }
         return;
       }
 
@@ -379,17 +388,12 @@ export default function Notecreate() {
       return;
     }
 
-    if (!formik.values.content?.trim()) {
-      syncDraftToStorage({ content: "" });
-      return;
-    }
-
     const timeoutId = setTimeout(() => {
       saveDraft(formik.values);
     }, 1500);
 
     return () => clearTimeout(timeoutId);
-  }, [formik.values, saveDraft, syncDraftToStorage]);
+  }, [formik.values, saveDraft, attachments]);
 
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -412,6 +416,7 @@ export default function Notecreate() {
   const handleAttachmentChange = (event) => {
     const files = Array.from(event.target.files || []);
     if (files.length === 0) return;
+    hasUserEditedRef.current = true;
 
     // No file-size or count limit — accept all selected files and append
     setAttachments((currentFiles) => {
@@ -427,6 +432,7 @@ export default function Notecreate() {
   };
 
   const removeAttachment = (indexToRemove) => {
+    hasUserEditedRef.current = true;
     setAttachments((currentFiles) =>
       currentFiles.filter((_, index) => index !== indexToRemove),
     );
@@ -482,7 +488,7 @@ export default function Notecreate() {
                   Saving...
                 </span>
               ) : hasUserEditedRef.current ? (
-                "Changes cached"
+                "Draft Saved"
               ) : (
                 ""
               )}

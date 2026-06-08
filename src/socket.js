@@ -12,11 +12,11 @@ const SOCKET_URL = getSocketUrl();
 
 let socket = null;
 
-export function createSocket(token) {
+export function createSocket(auth) {
   if (socket) return socket;
   socket = io(SOCKET_URL, {
     autoConnect: false,
-    auth: token ? { token } : undefined,
+    auth: auth || undefined,
   });
 
   socket.onAny((event, ...args) => {
@@ -28,8 +28,8 @@ export function createSocket(token) {
   return socket;
 }
 
-export function connectSocket(token) {
-  const s = createSocket(token);
+export function connectSocket(auth) {
+  const s = createSocket(auth);
   if (!s.connected) s.connect();
   return s;
 }

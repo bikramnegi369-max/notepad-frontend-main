@@ -62,66 +62,96 @@ export default function Login() {
   return (
     <>
       <ToastContainer />
-      <div className="flex justify-center items-center h-screen">
-        <form
-          className="max-w-[400px] w-full mx-auto bg-slate-400 p-10 bg-gradient-to-l from-[#390327] to-[#020520] rounded-xl"
-          onSubmit={formik.handleSubmit}
-        >
-          <div className="mb-5">
-            <label
-              htmlFor="name"
-              className="block mb-2 text-sm font-medium text-white  dark:text-white"
-            >
-              User Name
-            </label>
-            <input
-              type="text"
-              name="name"
-              id="name"
-              className="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
-              placeholder="Enter User Id"
-              onChange={formik.handleChange}
-              onBlur={formik.handleBlur}
-              value={formik.values.name}
+      <div className="flex min-h-screen flex-col justify-center bg-slate-50 px-4 py-12 sm:px-6 lg:px-8">
+        <div className="sm:mx-auto sm:w-full sm:max-w-md">
+          <div className="flex justify-center">
+            <img
+              src="image/logo.png"
+              alt="Notepad logo"
+              className="h-16 w-16 rounded-2xl border border-slate-200 shadow-sm object-cover"
             />
-            {formik.touched.name && formik.errors.name ? (
-              <div className="text-red-600">{formik.errors.name}</div>
-            ) : null}
           </div>
-          <div className="mb-5">
-            <label
-              htmlFor="password"
-              className="block mb-2 text-sm font-medium text-white dark:text-white"
-            >
-              Password
-            </label>
-            <input
-              type="password"
-              name="password"
-              id="password"
-              className="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
-              placeholder="Enter Password"
-              onChange={formik.handleChange}
-              onBlur={formik.handleBlur}
-              value={formik.values.password}
-            />
-            {formik.touched.password && formik.errors.password ? (
-              <div className="text-red-600">{formik.errors.password}</div>
-            ) : null}
+          <h2 className="mt-6 text-center text-3xl font-extrabold tracking-tight text-slate-900">
+            Sign in to Notepad
+          </h2>
+          <p className="mt-2 text-center text-sm text-slate-600">
+            Notes, drafts & chat in one place
+          </p>
+        </div>
+
+        <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+          <div className="rounded-2xl border border-slate-200 bg-white px-6 py-10 shadow-xl sm:px-10">
+            <form className="space-y-6" onSubmit={formik.handleSubmit}>
+              <div>
+                <label
+                  htmlFor="name"
+                  className="block text-sm font-semibold text-slate-700"
+                >
+                  User Name
+                </label>
+                <div className="mt-1">
+                  <input
+                    type="text"
+                    name="name"
+                    id="name"
+                    className="block w-full appearance-none rounded-lg border border-slate-300 px-3 py-2.5 text-slate-900 placeholder-slate-400 shadow-sm transition focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200 sm:text-sm"
+                    placeholder="Enter your username"
+                    onChange={formik.handleChange}
+                    onBlur={formik.handleBlur}
+                    value={formik.values.name}
+                  />
+                </div>
+                {formik.touched.name && formik.errors.name && (
+                  <p className="mt-2 text-sm text-red-600">
+                    {formik.errors.name}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label
+                  htmlFor="password"
+                  className="block text-sm font-semibold text-slate-700"
+                >
+                  Password
+                </label>
+                <div className="mt-1">
+                  <input
+                    type="password"
+                    name="password"
+                    id="password"
+                    className="block w-full appearance-none rounded-lg border border-slate-300 px-3 py-2.5 text-slate-900 placeholder-slate-400 shadow-sm transition focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200 sm:text-sm"
+                    placeholder="••••••••"
+                    onChange={formik.handleChange}
+                    onBlur={formik.handleBlur}
+                    value={formik.values.password}
+                  />
+                </div>
+                {formik.touched.password && formik.errors.password && (
+                  <p className="mt-2 text-sm text-red-600">
+                    {formik.errors.password}
+                  </p>
+                )}
+              </div>
+
+              {formik.errors.api && (
+                <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+                  {formik.errors.api}
+                </div>
+              )}
+
+              <div>
+                <button
+                  type="submit"
+                  className="flex w-full justify-center rounded-lg bg-slate-900 px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 disabled:opacity-50 active:scale-[0.98]"
+                  disabled={formik.isSubmitting}
+                >
+                  {formik.isSubmitting ? "Signing in..." : "Sign in"}
+                </button>
+              </div>
+            </form>
           </div>
-          <div className="items-center justify-center pt-4 flex">
-            <button
-              type="submit"
-              className="text-white bg-[#390327] hover:bg-[#020520] focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm w-full sm:w-auto px-5 py-2.5 text-center"
-              disabled={formik.isSubmitting}
-            >
-              Login
-            </button>
-          </div>
-          {formik.errors.api && (
-            <div className="text-red-600 mt-4">{formik.errors.api}</div>
-          )}
-        </form>
+        </div>
       </div>
     </>
   );
