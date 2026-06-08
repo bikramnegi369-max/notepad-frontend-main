@@ -8,7 +8,7 @@ import useAuth from "../../contexts/Auth";
 import Api_Url from "../api/api";
 import dateFormat from "dateformat";
 
-const DRAFT_STORAGE_KEY = "note-create-drafts";
+const DRAFT_STORAGE_KEY = "note-create-drafts-v2";
 
 export default function DraftPage() {
   const { logout } = useAuth();
@@ -64,6 +64,7 @@ export default function DraftPage() {
           id:
             draft.id ||
             `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          title: draft.title || "",
           content: draft.content,
           updatedAt: draft.updatedAt || new Date().toISOString(),
         }));
@@ -120,6 +121,7 @@ export default function DraftPage() {
       state: {
         resumeDraft: true,
         draftId: draft.id,
+        draftTitle: draft.title,
         draftContent: draft.content,
       },
     });
@@ -179,6 +181,11 @@ export default function DraftPage() {
                       : "Just now"}
                   </span>
                 </div>
+                {d.title && (
+                  <h3 className="mb-2 truncate text-base font-bold text-slate-800">
+                    {d.title}
+                  </h3>
+                )}
                 <div className="max-h-40 overflow-hidden rounded-lg border border-gray-100 bg-gray-50 p-4 text-sm leading-6 text-gray-700">
                   <p className="whitespace-pre-wrap break-words">{d.content}</p>
                 </div>

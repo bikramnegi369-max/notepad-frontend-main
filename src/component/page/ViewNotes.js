@@ -15,6 +15,11 @@ export default function ViewNotes({ id }) {
   const [data, setData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  const isToday = (dateString) => {
+    if (!dateString) return false;
+    return new Date(dateString).toDateString() === new Date().toDateString();
+  };
+
   const handleNote = useCallback(async () => {
     if (!id) return;
 
@@ -70,71 +75,81 @@ export default function ViewNotes({ id }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="grid h-10 w-10 place-items-center rounded-full text-green-700 transition hover:bg-green-50"
+        className="grid h-9 w-9 place-items-center rounded-full text-slate-500 transition-all hover:bg-slate-100 hover:text-slate-900"
         aria-label="View note"
       >
-        <PiEye size={22} />
+        <PiEye size={20} />
       </button>
 
       {isOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/55 p-0 sm:items-center sm:p-4"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 p-0 backdrop-blur-sm sm:items-center sm:p-4"
           onClick={() => setOpen(false)}
         >
           <section
-            className="flex max-h-[92vh] w-full max-w-3xl flex-col rounded-t-2xl bg-white shadow-2xl sm:rounded-lg"
+            className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-t-[2.5rem] border border-slate-200 bg-white shadow-2xl sm:rounded-[2.5rem] overflow-hidden"
             role="dialog"
             aria-modal="true"
             aria-labelledby="view-note-title"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-4 py-4 sm:px-6">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 bg-white/50 px-6 py-6 backdrop-blur-md sm:px-10 sm:py-8">
               <div>
-                <p className="text-sm font-medium text-gray-500">
+                <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-indigo-600/80">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-500"></span>
                   {data?.createdAt
-                    ? dateFormat(data.createdAt, "dd mmm yyyy, h:MM TT")
+                    ? dateFormat(data.createdAt, "dd mmm yyyy • h:MM TT")
                     : "Note details"}
-                </p>
+                </div>
                 <h2
                   id="view-note-title"
-                  className="text-xl font-semibold text-gray-950"
+                  className="text-xl font-bold tracking-tight text-gray-950 sm:text-2xl"
                 >
-                  View Note
+                  {isLoading ? "Loading..." : data?.title || "Untitled Note"}
                 </h2>
               </div>
               <button
                 type="button"
-                className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-gray-500 transition hover:bg-gray-100 hover:text-gray-950"
+                className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-slate-50 text-slate-400 transition-all hover:bg-red-50 hover:text-red-500"
                 onClick={() => setOpen(false)}
                 aria-label="Close note"
               >
-                <IoClose size={22} />
+                <IoClose size={24} />
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+            <div className="flex-1 overflow-y-auto bg-white px-6 py-8 sm:px-10">
               {isLoading ? (
-                <div className="rounded-lg border border-gray-200 bg-gray-50 p-6 text-center text-gray-600">
+                <div className="flex h-40 flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-slate-50 text-slate-400">
+                  <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-indigo-500 mb-2"></div>
                   Loading note...
                 </div>
               ) : (
                 <>
-                  <div className="min-h-64 rounded-lg border border-gray-200 bg-gray-50 p-4 text-left text-base leading-7 text-gray-900">
-                    <p className="whitespace-pre-wrap break-words">
+                  <div className="group rounded-2xl border border-slate-100 bg-slate-50/50 p-5 sm:p-8">
+                    <div className="mb-4 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
+                      <span className="h-1.5 w-1.5 rounded-full bg-slate-300"></span>
+                      Note Content
+                    </div>
+                    <p className="whitespace-pre-wrap break-words text-lg leading-relaxed text-slate-700">
                       {data?.content || "Empty note"}
                     </p>
                   </div>
 
                   {attachments.filter(Boolean).length > 0 && (
-                    <div className="mt-4">
-                      <h3 className="text-sm font-semibold text-gray-950">
+                    <div className="mt-8">
+                      <h3 className="mb-4 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
+                        <span className="h-px w-4 bg-slate-200"></span>
                         Attachments
                       </h3>
-                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                      <div className="grid gap-3 sm:grid-cols-2">
                         {attachments
                           .filter(Boolean)
                           .map((attachment, index) => {
                             const name = getAttachmentName(attachment);
+                            const size = attachment?.size
+                              ? `${(attachment.size / 1024).toFixed(0)} KB`
+                              : "File";
                             const href =
                               typeof attachment === "string"
                                 ? attachment
@@ -146,26 +161,31 @@ export default function ViewNotes({ id }) {
                             return (
                               <div
                                 key={`${name}-${index}`}
-                                className="flex min-w-0 items-center gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2"
+                                className="flex min-w-0 items-center gap-3 rounded-2xl border border-slate-100 bg-white p-4 transition hover:border-indigo-100 hover:bg-indigo-50/10 hover:shadow-sm"
                               >
                                 <IoDocumentTextOutline
-                                  className="shrink-0 text-gray-600"
+                                  className="shrink-0 text-slate-400"
                                   size={22}
                                 />
-                                {href ? (
-                                  <a
-                                    className="truncate text-sm font-medium text-gray-900 hover:underline"
-                                    href={href}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                  >
-                                    {name}
-                                  </a>
-                                ) : (
-                                  <span className="truncate text-sm font-medium text-gray-900">
-                                    {name}
-                                  </span>
-                                )}
+                                <div className="min-w-0 flex-1">
+                                  {href ? (
+                                    <a
+                                      className="block truncate text-sm font-bold text-slate-700 hover:text-indigo-600 hover:underline"
+                                      href={href}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                    >
+                                      {name}
+                                    </a>
+                                  ) : (
+                                    <span className="block truncate text-sm font-bold text-slate-700">
+                                      {name}
+                                    </span>
+                                  )}
+                                  <p className="text-[10px] text-slate-400">
+                                    {size}
+                                  </p>
+                                </div>
                               </div>
                             );
                           })}
@@ -176,21 +196,23 @@ export default function ViewNotes({ id }) {
               )}
             </div>
 
-            <div className="flex flex-col-reverse gap-2 border-t border-gray-200 px-4 py-4 sm:flex-row sm:justify-end sm:px-6">
+            <div className="flex flex-col-reverse gap-3 border-t border-slate-100 bg-slate-50/30 px-6 py-6 sm:flex-row sm:justify-end sm:px-10">
               <button
                 type="button"
-                className="min-h-11 rounded-lg border border-gray-300 px-4 text-sm font-semibold text-gray-800 transition hover:bg-gray-100"
+                className="min-h-11 rounded-xl border border-slate-200 px-8 text-sm font-bold text-slate-600 transition-all hover:bg-white hover:shadow-sm active:scale-95"
                 onClick={() => setOpen(false)}
               >
                 Close
               </button>
-              <Link
-                to={`/update/${id}`}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-gray-950 px-4 text-sm font-semibold text-white transition hover:bg-gray-800"
-              >
-                <IoCreateOutline size={18} />
-                Edit note
-              </Link>
+              {isToday(data?.createdAt) && (
+                <Link
+                  to={`/update/${id}`}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-8 text-sm font-bold text-white shadow-xl shadow-slate-200 transition-all hover:bg-slate-800 active:scale-95"
+                >
+                  <IoCreateOutline size={18} />
+                  Edit note
+                </Link>
+              )}
             </div>
           </section>
         </div>

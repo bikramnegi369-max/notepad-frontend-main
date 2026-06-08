@@ -10,11 +10,12 @@ import {
   IoAttach,
   IoClose,
   IoDocumentTextOutline,
+  IoCloudDoneOutline,
   IoSaveOutline,
 } from "react-icons/io5";
 
-const DRAFT_STORAGE_KEY = "note-create-drafts";
-const EMPTY_NOTE = { content: "" };
+const DRAFT_STORAGE_KEY = "note-create-drafts-v2";
+const EMPTY_NOTE = { title: "", content: "" };
 
 export default function Notecreate() {
   const navigate = useNavigate();
@@ -120,6 +121,7 @@ export default function Notecreate() {
   }, [cookies?.token]);
 
   const validationSchema = Yup.object({
+    title: Yup.string().trim().max(100, "Title is too long"),
     content: Yup.string()
       .trim()
       .min(3, "Write something meaningful")
@@ -128,6 +130,7 @@ export default function Notecreate() {
 
   const formik = useFormik({
     initialValues: {
+      title: location.state?.draftTitle || "",
       content: resumedContent || "",
     },
     enableReinitialize: true,
@@ -135,6 +138,7 @@ export default function Notecreate() {
     onSubmit: async (values, { setSubmitting, setErrors, resetForm }) => {
       try {
         const formData = new FormData();
+        formData.append("title", values.title);
         formData.append("content", values.content);
         attachments.forEach((file) => {
           formData.append("attachments", file);
@@ -186,20 +190,23 @@ export default function Notecreate() {
 
   const applyDraftValues = useCallback((draft) => {
     setFormikValuesRef.current({
+      title: draft.title || "",
       content: draft.content || "",
     });
     hasUserEditedRef.current = false;
   }, []);
 
-  const hasNoteContent = formik.values.content?.trim() !== "";
+  const hasNoteContent =
+    formik.values.content?.trim() !== "" || formik.values.title?.trim() !== "";
   const isSaveDisabled = formik.isSubmitting || !hasNoteContent;
 
   const syncDraftToStorage = useCallback(
     async (draft, draftAttachments) => {
+      const title = draft?.title?.trim();
       const content = draft?.content?.trim();
       const hasAttachments = draftAttachments && draftAttachments.length > 0;
 
-      if (!content && !hasAttachments) {
+      if (!content && !title && !hasAttachments) {
         if (!draftId) {
           setHasSavedDraft(loadLocalDrafts().length > 0);
           return;
@@ -226,6 +233,7 @@ export default function Notecreate() {
 
       const nextDraft = {
         id,
+        title,
         content,
         updatedAt: new Date().toISOString(),
         attachments: attachmentsData,
@@ -250,10 +258,11 @@ export default function Notecreate() {
 
   const saveDraft = useCallback(
     async (values) => {
+      const title = values.title?.trim();
       const content = values.content?.trim();
       const currentAttachments = attachments || [];
 
-      if (!content && currentAttachments.length === 0) {
+      if (!content && !title && currentAttachments.length === 0) {
         await syncDraftToStorage(values, []);
         try {
           setIsDraftSaving(true);
@@ -270,6 +279,7 @@ export default function Notecreate() {
       try {
         setIsDraftSaving(true);
         const formData = new FormData();
+        formData.append("title", title);
         formData.append("content", content);
         // append current attachments as files
         currentAttachments.forEach((file) => {
@@ -327,6 +337,7 @@ export default function Notecreate() {
             const id = draft.id || createDraftId();
             const base = {
               id,
+              title: draft.title || "",
               content: draft.content,
               updatedAt: draft.updatedAt || new Date().toISOString(),
             };
@@ -399,10 +410,15 @@ export default function Notecreate() {
     const handleBeforeUnload = () => {
       if (
         !savedRef.current &&
-        (formik.values.content.trim() || attachments.length > 0)
+        (formik.values.content.trim() ||
+          formik.values.title.trim() ||
+          attachments.length > 0)
       ) {
         // include attachments when syncing on unload
-        syncDraftToStorage({ content: formik.values.content }, attachments);
+        syncDraftToStorage(
+          { title: formik.values.title, content: formik.values.content },
+          attachments,
+        );
       }
     };
 
@@ -411,7 +427,12 @@ export default function Notecreate() {
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [formik.values.content, syncDraftToStorage, attachments]);
+  }, [
+    formik.values.content,
+    syncDraftToStorage,
+    attachments,
+    formik.values.title,
+  ]);
 
   const handleAttachmentChange = (event) => {
     const files = Array.from(event.target.files || []);
@@ -424,6 +445,11 @@ export default function Notecreate() {
     });
 
     event.target.value = "";
+  };
+
+  const handleTitleChange = (event) => {
+    hasUserEditedRef.current = true;
+    formik.handleChange(event);
   };
 
   const handleContentChange = (event) => {
@@ -454,59 +480,72 @@ export default function Notecreate() {
   }, [draftId, resumedContent]);
 
   return (
-    <div className="min-h-[calc(100vh-5rem)] bg-slate-50 px-4 py-6 sm:px-6">
+    <div className="min-h-screen bg-white sm:bg-slate-50/50 px-0 py-0 sm:px-6 sm:py-10">
       <ToastContainer />
       <form
         onSubmit={formik.handleSubmit}
-        className="mx-auto flex min-h-[75vh] w-full max-w-5xl flex-col rounded-xl border border-gray-200 bg-white shadow-sm transition-all duration-300"
+        className="mx-auto flex min-h-screen sm:min-h-[90vh] w-full max-w-4xl flex-col sm:rounded-3xl sm:border border-slate-200 bg-slate-50 sm:shadow-2xl sm:shadow-slate-200/60 transition-all duration-300"
       >
-        <div className="sticky top-0 z-10 flex flex-col gap-3 rounded-t-xl border-b border-gray-200 bg-white/80 px-4 py-4 backdrop-blur-md sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <div>
-            <h1 className="text-xl font-bold text-gray-950 sm:text-2xl">
-              Create Note
-            </h1>
+        <div className="sticky top-0 z-20 flex items-center justify-between border-b border-slate-100 bg-white/80 px-4 py-3 backdrop-blur-xl sm:rounded-t-3xl sm:px-8 sm:py-5">
+          <div className="flex items-center gap-3">
+            <div className="hidden items-center gap-2 sm:flex">
+              <div className="h-2 w-2 rounded-full bg-indigo-500"></div>
+              <h1 className="text-sm font-bold tracking-tight text-slate-800 uppercase">
+                New Note
+              </h1>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate(-1)}
+              className="sm:hidden p-1"
+            >
+              <IoClose size={24} className="text-gray-500" />
+            </button>
             {hasSavedDraft &&
               !shouldResumeDraft &&
               !hasUserEditedRef.current && (
                 <Link
                   to="/draft"
-                  className="mt-1 inline-block text-sm font-medium text-green-700 hover:text-green-800 hover:underline"
+                  className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-100"
                 >
-                  View unsaved draft
+                  Restore Draft
                 </Link>
               )}
           </div>
-          <div className="flex w-full items-center gap-2 sm:w-auto">
+          <div className="flex items-center gap-5">
             <span
-              className="flex-1 text-xs font-medium text-gray-400 sm:min-w-20 sm:text-right"
+              className="text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400 sm:min-w-24 sm:text-right"
               role="status"
               aria-live="polite"
             >
               {isDraftSaving ? (
-                <span className="flex items-center justify-end gap-1.5">
-                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-gray-400"></span>{" "}
-                  Saving...
+                <span className="flex items-center justify-end gap-1.5 text-indigo-500">
+                  <span className="h-1 w-1 animate-ping rounded-full bg-indigo-500"></span>{" "}
+                  Saving
                 </span>
               ) : hasUserEditedRef.current ? (
-                "Draft Saved"
+                <span className="flex items-center justify-end gap-1">
+                  <IoCloudDoneOutline size={14} className="text-slate-400" />
+                  Synced
+                </span>
               ) : (
                 ""
               )}
             </span>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <button
                 type="submit"
-                className={`inline-flex h-10 min-w-[100px] items-center justify-center gap-2 rounded-lg px-4 text-sm font-bold text-white shadow-sm transition-all active:scale-95 sm:h-11 sm:min-w-28 ${
+                className={`inline-flex h-9 min-w-[80px] items-center justify-center gap-2 rounded-xl px-5 text-sm font-bold text-white shadow-lg transition-all active:scale-95 sm:h-10 sm:min-w-[100px] ${
                   isSaveDisabled
-                    ? "cursor-not-allowed bg-gray-300"
-                    : "bg-green-600 hover:bg-green-700 hover:shadow-green-100"
+                    ? "cursor-not-allowed bg-slate-200 shadow-none"
+                    : "bg-slate-900 hover:bg-slate-800 hover:shadow-slate-200"
                 }`}
                 disabled={isSaveDisabled}
               >
                 <IoSaveOutline size={18} />
                 {formik.isSubmitting ? "Saving" : "Save"}
               </button>
-              {(hasSavedDraft || hasNoteContent) && (
+              {hasNoteContent && (
                 <button
                   type="button"
                   onClick={async () => {
@@ -521,85 +560,120 @@ export default function Notecreate() {
                     setDraftId(null);
                     setHasSavedDraft(remainingDrafts.length > 0);
                     setAttachments([]);
-                    setFormikValuesRef.current({ content: "" });
+                    formik.resetForm({ values: EMPTY_NOTE });
                     toast.info("Draft discarded");
                   }}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-red-600 sm:w-auto sm:px-4 sm:text-sm sm:font-bold"
                 >
-                  Discard
+                  <IoClose className="sm:hidden" size={20} />
+                  <span className="hidden sm:inline">Discard</span>
                 </button>
               )}
             </div>
           </div>
         </div>
 
-        <div className="flex flex-1 flex-col gap-4 px-4 py-4 sm:px-6">
-          <textarea
-            className="min-h-[50vh] w-full flex-1 resize-none border-none bg-transparent p-0 text-base leading-7 text-gray-950 outline-none transition placeholder:text-gray-400 sm:min-h-[60vh] sm:text-lg"
-            placeholder="Write without limits..."
-            onChange={handleContentChange}
-            name="content"
-            value={formik.values.content}
-          />
-          {formik.touched.content && formik.errors.content && (
-            <p className="mt-2 text-sm text-red-600">{formik.errors.content}</p>
-          )}
-
-          {attachments.length > 0 && (
-            <div className="grid gap-2 sm:grid-cols-2">
-              {attachments.map((file, index) => (
-                <div
-                  key={`${file.name}-${file.lastModified}-${index}`}
-                  className="flex min-w-0 items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
-                >
-                  <IoDocumentTextOutline
-                    className="shrink-0 text-gray-600"
-                    size={22}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-gray-900">
-                      {file.name}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {(file.size / 1024).toFixed(1)} KB
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-gray-500 transition hover:bg-gray-200 hover:text-gray-900"
-                    onClick={() => removeAttachment(index)}
-                    aria-label={`Remove ${file.name}`}
-                  >
-                    <IoClose size={18} />
-                  </button>
-                </div>
-              ))}
+        <div className="flex flex-1 flex-col gap-6 p-4 sm:p-8">
+          {/* Panel 1: Title Card */}
+          <div className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-all focus-within:border-indigo-300 focus-within:ring-4 focus-within:ring-indigo-500/5 sm:p-8">
+            <div className="mb-4 flex items-center justify-between">
+              <span className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 group-focus-within:text-indigo-600">
+                <span className="h-1.5 w-1.5 rounded-full bg-slate-300 group-focus-within:bg-indigo-500"></span>
+                Document Title
+              </span>
+              <span
+                className={`text-[10px] font-bold tracking-widest ${
+                  formik.values.title.length > 90
+                    ? "text-red-500"
+                    : "text-slate-300"
+                }`}
+              >
+                {formik.values.title.length} / 100
+              </span>
             </div>
-          )}
+            <input
+              type="text"
+              name="title"
+              id="note-title"
+              placeholder="Give your note a name..."
+              className="w-full border-none bg-transparent p-0 text-xl font-bold tracking-tight text-slate-900 outline-none placeholder:text-slate-200 transition-all focus:ring-0 sm:text-2xl"
+              value={formik.values.title}
+              onChange={handleTitleChange}
+            />
+          </div>
 
-          <div className="flex flex-col gap-3 border-t border-gray-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm leading-5 text-gray-500">
-              Attach any file type. Large notes are supported by the editor.
-            </p>
-            <label className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-semibold text-gray-900 transition hover:bg-gray-100 sm:w-auto">
-              <IoAttach size={20} />
-              <span className="inline-flex items-center gap-2">
-                <span>Attach files</span>
+          {/* Panel 2: Content Card */}
+          <div className="group flex flex-1 flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-all focus-within:border-indigo-300 focus-within:ring-4 focus-within:ring-indigo-500/5 sm:p-8">
+            <div className="mb-6 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 group-focus-within:text-indigo-600">
+              <span className="h-1.5 w-1.5 rounded-full bg-slate-300 group-focus-within:bg-indigo-500"></span>
+              Note Body
+            </div>
+            <textarea
+              className="min-h-[40vh] w-full flex-1 resize-none border-none bg-transparent p-0 text-lg font-medium leading-relaxed text-slate-700 outline-none transition placeholder:text-slate-200 focus:ring-0 sm:text-xl"
+              placeholder="Write your content here..."
+              onChange={handleContentChange}
+              name="content"
+              value={formik.values.content}
+            />
+            {formik.touched.content && formik.errors.content && (
+              <p className="mt-2 text-sm text-red-600">
+                {formik.errors.content}
+              </p>
+            )}
+
+            {/* Attachments Section Inside Content Card */}
+            {attachments.length > 0 && (
+              <div className="mt-10 grid gap-3 border-t border-slate-50 pt-8 sm:grid-cols-2 lg:grid-cols-3">
+                {attachments.map((file, index) => (
+                  <div
+                    key={`${file.name}-${file.lastModified}-${index}`}
+                    className="group relative flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-3 transition hover:border-indigo-100 hover:bg-white hover:shadow-md"
+                  >
+                    <div className="text-slate-400 group-hover:text-indigo-500">
+                      <IoDocumentTextOutline size={20} />
+                    </div>
+                    <div className="min-w-0 flex-1 text-xs">
+                      <p className="truncate font-bold text-slate-700">
+                        {file.name}
+                      </p>
+                      <p className="text-[10px] text-slate-400">
+                        {(file.size / 1024).toFixed(0)} KB
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="text-slate-300 hover:text-red-500"
+                      onClick={() => removeAttachment(index)}
+                    >
+                      <IoClose size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Card Footer Actions */}
+            <div className="mt-10 flex flex-col items-center justify-between gap-4 border-t border-slate-50 pt-8 sm:flex-row">
+              <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-slate-300">
+                <IoCloudDoneOutline size={14} />
+                Auto-synced to cloud
+              </div>
+              <label className="flex h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 text-xs font-black uppercase tracking-widest text-slate-600 transition hover:border-indigo-200 hover:bg-slate-50 active:scale-95">
+                <IoAttach size={18} />
+                Attach Files
                 {attachments.length > 0 && (
-                  <span className="ml-1 inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
+                  <span className="ml-1 rounded-md bg-slate-900 px-1.5 py-0.5 text-[9px] text-white">
                     {attachments.length}
                   </span>
                 )}
-              </span>
-              <input
-                className="hidden"
-                type="file"
-                aria-label="Attach files"
-                name="attachments"
-                multiple
-                onChange={handleAttachmentChange}
-              />
-            </label>
+                <input
+                  className="hidden"
+                  type="file"
+                  multiple
+                  onChange={handleAttachmentChange}
+                />
+              </label>
+            </div>
           </div>
         </div>
       </form>
