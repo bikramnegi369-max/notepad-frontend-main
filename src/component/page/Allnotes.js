@@ -12,8 +12,6 @@ import {
   IoAdd,
   IoSearch,
   IoDocumentTextOutline,
-  IoCalendarOutline,
-  IoCloseCircleOutline,
   IoCloseCircle,
   IoRefreshOutline,
 } from "react-icons/io5";
@@ -22,25 +20,14 @@ export default function Allnotes() {
   const [allNotes, setAllNotes] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterDate, setFilterDate] = useState("");
   const { logout } = useAuth();
   const navigate = useNavigate();
-
-  const isToday = (dateString) => {
-    if (!dateString) return false;
-    return new Date(dateString).toDateString() === new Date().toDateString();
-  };
 
   const fetchNotes = useCallback(async () => {
     try {
       setIsLoading(true);
       const params = new URLSearchParams();
       if (searchTerm.trim()) params.append("search", searchTerm.trim());
-
-      if (filterDate) {
-        params.append("startDate", filterDate);
-        params.append("endDate", filterDate);
-      }
 
       const response = await Api_Url.get(`getNotes?${params.toString()}`);
       setAllNotes(response.data.data || []);
@@ -55,7 +42,7 @@ export default function Allnotes() {
     } finally {
       setIsLoading(false);
     }
-  }, [searchTerm, filterDate, logout, navigate]);
+  }, [searchTerm, logout, navigate]);
 
   useEffect(() => {
     const timeoutId = setTimeout(async () => {
@@ -85,10 +72,15 @@ export default function Allnotes() {
 
   const resetFilters = () => {
     setSearchTerm("");
-    setFilterDate("");
   };
 
-  const hasActiveFilters = searchTerm || filterDate;
+  const hasActiveFilters = searchTerm;
+
+  const isCurrentDate = (noteDate) => {
+    const today = dateFormat(new Date(), "yyyy-mm-dd");
+    const noteCreationDate = dateFormat(noteDate, "yyyy-mm-dd");
+    return today === noteCreationDate;
+  };
 
   return (
     <div className="min-h-[calc(100vh-5rem)] bg-slate-50 pb-24 px-4 py-6 sm:px-6">
@@ -141,29 +133,6 @@ export default function Allnotes() {
               <IoAdd size={20} />
               <span className="hidden sm:inline">New note</span>
             </Link>
-          </div>
-        </div>
-
-        {/* Single Date Filter Row */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="relative flex-1 sm:max-w-xs">
-            <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-              <IoCalendarOutline size={18} />
-            </div>
-            <input
-              type="date"
-              className="min-h-[44px] w-full rounded-xl border border-gray-200 bg-white pl-10 pr-10 text-sm text-gray-950 outline-none transition focus:border-green-500 focus:ring-4 focus:ring-green-500/10"
-              value={filterDate}
-              onChange={(e) => setFilterDate(e.target.value)}
-            />
-            {filterDate && (
-              <button
-                onClick={() => setFilterDate("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-500"
-              >
-                <IoCloseCircleOutline size={18} />
-              </button>
-            )}
           </div>
         </div>
 
@@ -225,7 +194,7 @@ export default function Allnotes() {
                   </p>
                 </div>
                 <div className="mt-4 flex items-center justify-end gap-2 border-t border-gray-100 pt-3 px-1">
-                  {isToday(note?.createdAt) && (
+                  {isCurrentDate(note?.createdAt) && (
                     <Link
                       to={`/update/${note?._id}`}
                       className="grid h-9 w-9 place-items-center rounded-full text-gray-700 transition hover:bg-gray-100"

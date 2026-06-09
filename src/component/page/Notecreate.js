@@ -7,14 +7,30 @@ import * as Yup from "yup";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import useAuth from "../../contexts/Auth";
 import {
+  createDraftId,
+  isLocalDraftId,
+  loadLocalDrafts,
+  normalizeServerDrafts,
+  replaceLocalDraftId,
+  saveLocalDrafts,
+  upsertLocalDraft,
+} from "../util/drafts";
+import {
+  appendAttachmentsToFormData,
+  filesToStoredAttachments,
+  buildAttachmentUrl,
+  getAttachmentName,
+  validateFiles,
+  restoreDraftAttachments,
+} from "../util/attachments";
+import {
   IoAttach,
   IoClose,
-  IoDocumentTextOutline,
   IoCloudDoneOutline,
   IoSaveOutline,
 } from "react-icons/io5";
+import AttachmentList from "../common/AttachmentList";
 
-const DRAFT_STORAGE_KEY = "note-create-drafts-v2";
 const EMPTY_NOTE = { title: "", content: "" };
 
 export default function Notecreate() {
@@ -25,95 +41,20 @@ export default function Notecreate() {
   const [isDraftSaving, setIsDraftSaving] = useState(false);
   const [hasSavedDraft, setHasSavedDraft] = useState(false);
   const [draftId, setDraftId] = useState(location.state?.draftId || null);
+  const draftIdRef = useRef(location.state?.draftId || null);
   const savedRef = useRef(false);
   const hasUserEditedRef = useRef(false);
+
+  // Keep ref in sync with state for API calls without triggering re-renders
+  useEffect(() => {
+    draftIdRef.current = draftId;
+  }, [draftId]);
 
   // Extract content if passed from the Draft page directly
   const resumedContent = location.state?.draftContent;
   const resumedDraftId = location.state?.draftId;
   const shouldResumeDraft =
     location.state?.resumeDraft === true || !!resumedContent;
-
-  const loadLocalDrafts = () => {
-    const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
-    if (!raw) return [];
-
-    try {
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
-    } catch (error) {
-      localStorage.removeItem(DRAFT_STORAGE_KEY);
-      return [];
-    }
-  };
-
-  // Convert File objects to serializable data URLs for storage
-  const filesToDataUrls = (files) => {
-    return Promise.all(
-      (files || []).map(
-        (file) =>
-          new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onload = () => {
-              resolve({
-                name: file.name,
-                type: file.type,
-                size: file.size,
-                dataUrl: reader.result,
-              });
-            };
-            reader.onerror = () => {
-              resolve(null);
-            };
-            reader.readAsDataURL(file);
-          }),
-      ),
-    ).then((arr) => arr.filter(Boolean));
-  };
-
-  // Convert stored dataUrl back to a File object
-  const dataUrlToFile = (dataUrl, name, type) => {
-    try {
-      const arr = dataUrl.split(",");
-      const mimeMatch = arr[0].match(/:(.*?);/);
-      const mime =
-        (mimeMatch && mimeMatch[1]) || type || "application/octet-stream";
-      const bstr = atob(arr[1]);
-      let n = bstr.length;
-      const u8arr = new Uint8Array(n);
-      while (n--) u8arr[n] = bstr.charCodeAt(n);
-      return new File([u8arr], name, { type: mime });
-    } catch (e) {
-      return null;
-    }
-  };
-
-  // Fetch a remote URL and convert to data URL
-  const fetchUrlToDataUrl = async (url) => {
-    try {
-      const res = await fetch(url);
-      const blob = await res.blob();
-      return await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-    } catch (e) {
-      return null;
-    }
-  };
-
-  const saveDraftsToStorage = (drafts) => {
-    if (!drafts || drafts.length === 0) {
-      localStorage.removeItem(DRAFT_STORAGE_KEY);
-      return;
-    }
-    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(drafts));
-  };
-
-  const createDraftId = () =>
-    `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   useEffect(() => {
     // Sync token with axios defaults whenever cookie changes
@@ -140,9 +81,7 @@ export default function Notecreate() {
         const formData = new FormData();
         formData.append("title", values.title);
         formData.append("content", values.content);
-        attachments.forEach((file) => {
-          formData.append("attachments", file);
-        });
+        appendAttachmentsToFormData(formData, attachments);
 
         const response = await Api_Url.post("addnotes", formData, {
           headers: { "Content-Type": "multipart/form-data" },
@@ -155,15 +94,19 @@ export default function Notecreate() {
           savedRef.current = true;
           toast.success(response.data.message || "Note saved");
 
-          // clear draft on server if present
-          try {
-            await Api_Url.delete("draft");
-          } catch (e) {}
+          // Clear specific draft on server if present
+          if (draftIdRef.current) {
+            try {
+              await Api_Url.delete(`draft/${draftIdRef.current}`);
+            } catch (e) {
+              console.error("Failed to clear server draft", e);
+            }
+          }
 
           const remainingDrafts = loadLocalDrafts().filter(
-            (item) => item.id !== draftId,
+            (item) => item.id !== draftIdRef.current,
           );
-          saveDraftsToStorage(remainingDrafts);
+          saveLocalDrafts(remainingDrafts);
           setDraftId(null);
           setHasSavedDraft(remainingDrafts.length > 0);
           setAttachments([]);
@@ -188,11 +131,23 @@ export default function Notecreate() {
     setFormikValuesRef.current = formik.setValues;
   }, [formik.setValues]);
 
+  // Handle attachments passed via location.state when resuming a draft
+  useEffect(() => {
+    if (shouldResumeDraft && location.state?.draftAttachments) {
+      setAttachments(restoreDraftAttachments(location.state.draftAttachments));
+    }
+  }, [shouldResumeDraft, location.state?.draftAttachments]);
   const applyDraftValues = useCallback((draft) => {
     setFormikValuesRef.current({
       title: draft.title || "",
       content: draft.content || "",
     });
+    // Restore attachments when applying a draft
+    if (draft.attachments) {
+      setAttachments(restoreDraftAttachments(draft.attachments));
+    } else {
+      setAttachments([]); // Clear attachments if the draft has none
+    }
     hasUserEditedRef.current = false;
   }, []);
 
@@ -200,117 +155,126 @@ export default function Notecreate() {
     formik.values.content?.trim() !== "" || formik.values.title?.trim() !== "";
   const isSaveDisabled = formik.isSubmitting || !hasNoteContent;
 
-  const syncDraftToStorage = useCallback(
-    async (draft, draftAttachments) => {
-      const title = draft?.title?.trim();
-      const content = draft?.content?.trim();
-      const hasAttachments = draftAttachments && draftAttachments.length > 0;
+  const syncDraftToStorage = useCallback(async (draft, draftAttachments) => {
+    const title = draft?.title?.trim() || "";
+    const content = draft?.content?.trim() || "";
+    const hasAttachments = draftAttachments && draftAttachments.length > 0;
 
-      if (!content && !title && !hasAttachments) {
-        if (!draftId) {
-          setHasSavedDraft(loadLocalDrafts().length > 0);
-          return;
-        }
-
-        const nextDrafts = loadLocalDrafts().filter(
-          (item) => item.id !== draftId,
-        );
-        saveDraftsToStorage(nextDrafts);
-        setHasSavedDraft(nextDrafts.length > 0);
-        setDraftId(null);
-        return nextDrafts;
+    if (!content && !title && !hasAttachments) {
+      if (!draftIdRef.current) {
+        setHasSavedDraft(loadLocalDrafts().length > 0);
+        return;
       }
 
-      const id = draftId || createDraftId();
-      let attachmentsData = [];
-      if (draftAttachments && draftAttachments.length > 0) {
-        // assume draftAttachments are File objects or already-serialized objects
-        const needConvert = draftAttachments[0] instanceof File;
-        attachmentsData = needConvert
-          ? await filesToDataUrls(draftAttachments)
-          : draftAttachments;
-      }
+      const nextDrafts = loadLocalDrafts().filter(
+        (item) => item.id !== draftIdRef.current,
+      );
+      saveLocalDrafts(nextDrafts);
+      setHasSavedDraft(nextDrafts.length > 0);
+      setDraftId(null);
+      return nextDrafts;
+    }
 
-      const nextDraft = {
-        id,
-        title,
-        content,
-        updatedAt: new Date().toISOString(),
-        attachments: attachmentsData,
-      };
+    const id = draftIdRef.current || createDraftId();
+    let attachmentsData = [];
+    if (draftAttachments && draftAttachments.length > 0) {
+      // assume draftAttachments are File objects or already-serialized objects
+      const needConvert = draftAttachments[0] instanceof File;
+      attachmentsData = needConvert
+        ? await filesToStoredAttachments(draftAttachments)
+        : draftAttachments;
+    }
 
-      const drafts = loadLocalDrafts();
-      const existingIndex = drafts.findIndex((item) => item.id === id);
+    const nextDraft = {
+      id,
+      title,
+      content,
+      updatedAt: new Date().toISOString(),
+      attachments: attachmentsData,
+    };
 
-      if (existingIndex > -1) {
-        drafts[existingIndex] = nextDraft;
-      } else {
-        drafts.unshift(nextDraft);
-      }
-
-      saveDraftsToStorage(drafts);
-      setHasSavedDraft(true);
-      setDraftId(id);
-      return drafts;
-    },
-    [draftId],
-  );
+    upsertLocalDraft(nextDraft);
+    setHasSavedDraft(true);
+    setDraftId(id);
+    return id;
+  }, []);
 
   const saveDraft = useCallback(
     async (values) => {
       const title = values.title?.trim();
       const content = values.content?.trim();
       const currentAttachments = attachments || [];
+      const isContentEmpty =
+        !content && !title && currentAttachments.length === 0;
 
-      if (!content && !title && currentAttachments.length === 0) {
-        await syncDraftToStorage(values, []);
-        try {
-          setIsDraftSaving(true);
-          await Api_Url.delete("draft");
-        } catch (error) {
-          // Silent fail for auto-cleanup
-        } finally {
-          setIsDraftSaving(false);
-        }
-        return;
-      }
+      const currentId = await syncDraftToStorage(values, currentAttachments);
 
-      await syncDraftToStorage(values, currentAttachments);
+      // 2. Sync to Backend (either DELETE or POST/UPSERT)
       try {
         setIsDraftSaving(true);
-        const formData = new FormData();
-        formData.append("title", title);
-        formData.append("content", content);
-        // append current attachments as files
-        currentAttachments.forEach((file) => {
-          if (file instanceof File) {
-            formData.append("attachments", file);
+        if (isContentEmpty) {
+          // If draft is empty, delete it from the backend
+          if (draftIdRef.current && !isLocalDraftId(draftIdRef.current)) {
+            // Only delete if a draftId exists
+            await Api_Url.delete(`draft/${draftIdRef.current}`);
+            setDraftId(null); // Clear draftId after deletion
           }
-        });
-
-        await Api_Url.post("draft", formData, {
-          headers: { "Content-Type": "multipart/form-data" },
-          onUploadProgress: (e) => {
-            // optional: progress
-          },
-        });
+        } else {
+          // If not empty, save/update to the backend
+          const formData = new FormData();
+          formData.append("title", title);
+          formData.append("content", content);
+          if (draftIdRef.current && !isLocalDraftId(draftIdRef.current)) {
+            formData.append("id", draftIdRef.current);
+          }
+          appendAttachmentsToFormData(formData, currentAttachments);
+          const response = await Api_Url.post("draft", formData, {
+            headers: { "Content-Type": "multipart/form-data" },
+          });
+          // If a new draft was created on the server (no draftId existed), update draftId state
+          if (
+            response.data?.data?._id &&
+            (!currentId || isLocalDraftId(currentId))
+          ) {
+            const serverId = response.data.data._id;
+            setDraftId(serverId);
+            replaceLocalDraftId(currentId, serverId);
+          }
+        }
       } catch (error) {
         toast.error("Unable to sync draft to server.");
       } finally {
         setTimeout(() => setIsDraftSaving(false), 500);
       }
     },
-    [syncDraftToStorage, attachments],
+    // Removed draftId from dependencies to fix the "double request" bug
+    [attachments, syncDraftToStorage],
   );
+
+  // Modified useEffect to call saveDraft
+  useEffect(() => {
+    if (!hasUserEditedRef.current) {
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      saveDraft(formik.values);
+    }, 1500);
+
+    return () => clearTimeout(timeoutId);
+  }, [formik.values, saveDraft, attachments]);
+
+  // Existing useEffect for beforeunload (no changes needed here as it calls syncDraftToStorage directly)
 
   useEffect(() => {
     if (resumedContent) return; // Already loaded from state
 
     const storedDrafts = loadLocalDrafts();
-    if (storedDrafts.length > 0) {
+    const createDrafts = storedDrafts.filter((draft) => !draft.noteId);
+    if (createDrafts.length > 0) {
       setHasSavedDraft(true);
       if (shouldResumeDraft && resumedDraftId) {
-        const matched = storedDrafts.find(
+        const matched = createDrafts.find(
           (draft) => draft.id === resumedDraftId,
         );
         if (matched) {
@@ -324,12 +288,9 @@ export default function Notecreate() {
     const loadDraft = async () => {
       try {
         const response = await Api_Url.get("draft");
-        const draftData = response.data.data;
-        const normalizedDrafts = Array.isArray(draftData)
-          ? draftData
-          : draftData
-            ? [draftData]
-            : [];
+        const normalizedDrafts = normalizeServerDrafts(
+          response.data.data,
+        ).filter((draft) => !draft.noteId);
 
         if (normalizedDrafts.length > 0) {
           const drafts = [];
@@ -350,15 +311,17 @@ export default function Notecreate() {
               const attData = [];
               for (const att of draft.attachments) {
                 if (att.dataUrl) {
-                  attData.push({
-                    name: att.name,
-                    type: att.type,
-                    size: att.size || 0,
-                    dataUrl: att.dataUrl,
+                  attData.push(att);
+                } else {
+                  const url = buildAttachmentUrl(att);
+                  const res = await fetch(url);
+                  const blob = await res.blob();
+                  const dataUrl = await new Promise((resolve) => {
+                    const r = new FileReader();
+                    r.onload = () => resolve(r.result);
+                    r.readAsDataURL(blob);
                   });
-                } else if (att.url) {
-                  const dataUrl = await fetchUrlToDataUrl(att.url);
-                  const name = att.name || att.url.split("/").pop() || "file";
+                  const name = getAttachmentName(att);
                   if (dataUrl)
                     attData.push({
                       name,
@@ -374,7 +337,10 @@ export default function Notecreate() {
             }
           }
 
-          saveDraftsToStorage(drafts);
+          saveLocalDrafts([
+            ...drafts,
+            ...loadLocalDrafts().filter((draft) => draft.noteId),
+          ]);
           setHasSavedDraft(true);
 
           if (shouldResumeDraft && resumedDraftId) {
@@ -385,26 +351,15 @@ export default function Notecreate() {
             }
           }
         } else {
-          setHasSavedDraft(false);
+          setHasSavedDraft(loadLocalDrafts().length > 0);
         }
       } catch (error) {
         // remote draft restore failed; local drafts will be used instead
+        setHasSavedDraft(loadLocalDrafts().length > 0);
       }
     };
     loadDraft();
   }, [applyDraftValues, resumedContent, resumedDraftId, shouldResumeDraft]);
-
-  useEffect(() => {
-    if (!hasUserEditedRef.current) {
-      return;
-    }
-
-    const timeoutId = setTimeout(() => {
-      saveDraft(formik.values);
-    }, 1500);
-
-    return () => clearTimeout(timeoutId);
-  }, [formik.values, saveDraft, attachments]);
 
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -436,10 +391,16 @@ export default function Notecreate() {
 
   const handleAttachmentChange = (event) => {
     const files = Array.from(event.target.files || []);
-    if (files.length === 0) return;
+    if (files.length === 0) {
+      return;
+    }
     hasUserEditedRef.current = true;
 
-    // No file-size or count limit — accept all selected files and append
+    const validationError = validateFiles(files, attachments.length);
+    if (validationError) {
+      toast.error(validationError);
+      return;
+    }
     setAttachments((currentFiles) => {
       return [...currentFiles, ...files];
     });
@@ -463,21 +424,6 @@ export default function Notecreate() {
       currentFiles.filter((_, index) => index !== indexToRemove),
     );
   };
-
-  // When applying a draft, restore attachments (convert dataUrls back to File objects)
-  useEffect(() => {
-    if (resumedContent) return;
-    const storedDrafts = loadLocalDrafts();
-    if (storedDrafts.length === 0) return;
-    const currentId = draftId;
-    if (!currentId) return;
-    const matched = storedDrafts.find((d) => d.id === currentId);
-    if (!matched || !matched.attachments) return;
-    const restored = matched.attachments
-      .map((att) => dataUrlToFile(att.dataUrl, att.name, att.type))
-      .filter(Boolean);
-    if (restored.length > 0) setAttachments(restored);
-  }, [draftId, resumedContent]);
 
   return (
     <div className="min-h-screen bg-white sm:bg-slate-50/50 px-0 py-0 sm:px-6 sm:py-10">
@@ -508,7 +454,7 @@ export default function Notecreate() {
                   to="/draft"
                   className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-100"
                 >
-                  Restore Draft
+                  View Drafts
                 </Link>
               )}
           </div>
@@ -550,16 +496,21 @@ export default function Notecreate() {
                   type="button"
                   onClick={async () => {
                     try {
-                      await Api_Url.delete("draft");
+                      await Api_Url.delete(
+                        `draft${draftIdRef.current ? `/${draftIdRef.current}` : ""}`,
+                      );
                     } catch (e) {}
 
-                    const remainingDrafts = draftId
-                      ? loadLocalDrafts().filter((item) => item.id !== draftId)
+                    const remainingDrafts = draftIdRef.current
+                      ? loadLocalDrafts().filter(
+                          (item) => item.id !== draftIdRef.current,
+                        )
                       : loadLocalDrafts();
-                    saveDraftsToStorage(remainingDrafts);
+                    saveLocalDrafts(remainingDrafts);
                     setDraftId(null);
                     setHasSavedDraft(remainingDrafts.length > 0);
                     setAttachments([]);
+                    hasUserEditedRef.current = false;
                     formik.resetForm({ values: EMPTY_NOTE });
                     toast.info("Draft discarded");
                   }}
@@ -621,34 +572,12 @@ export default function Notecreate() {
               </p>
             )}
 
-            {/* Attachments Section Inside Content Card */}
             {attachments.length > 0 && (
-              <div className="mt-10 grid gap-3 border-t border-slate-50 pt-8 sm:grid-cols-2 lg:grid-cols-3">
-                {attachments.map((file, index) => (
-                  <div
-                    key={`${file.name}-${file.lastModified}-${index}`}
-                    className="group relative flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-3 transition hover:border-indigo-100 hover:bg-white hover:shadow-md"
-                  >
-                    <div className="text-slate-400 group-hover:text-indigo-500">
-                      <IoDocumentTextOutline size={20} />
-                    </div>
-                    <div className="min-w-0 flex-1 text-xs">
-                      <p className="truncate font-bold text-slate-700">
-                        {file.name}
-                      </p>
-                      <p className="text-[10px] text-slate-400">
-                        {(file.size / 1024).toFixed(0)} KB
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      className="text-slate-300 hover:text-red-500"
-                      onClick={() => removeAttachment(index)}
-                    >
-                      <IoClose size={16} />
-                    </button>
-                  </div>
-                ))}
+              <div className="mt-10 border-t border-slate-100 pt-8">
+                <AttachmentList
+                  attachments={attachments}
+                  onRemove={removeAttachment}
+                />
               </div>
             )}
 

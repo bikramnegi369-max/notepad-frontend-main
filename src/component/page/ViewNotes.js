@@ -5,6 +5,11 @@ import dateFormat from "dateformat";
 import Api_Url from "../api/api";
 import { toast } from "react-toastify";
 import {
+  buildAttachmentUrl,
+  formatAttachmentSize,
+  isImageAttachment,
+} from "../util/attachments";
+import {
   IoClose,
   IoCreateOutline,
   IoDocumentTextOutline,
@@ -14,11 +19,6 @@ export default function ViewNotes({ id }) {
   const [isOpen, setOpen] = useState(false);
   const [data, setData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-
-  const isToday = (dateString) => {
-    if (!dateString) return false;
-    return new Date(dateString).toDateString() === new Date().toDateString();
-  };
 
   const handleNote = useCallback(async () => {
     if (!id) return;
@@ -147,30 +147,32 @@ export default function ViewNotes({ id }) {
                           .filter(Boolean)
                           .map((attachment, index) => {
                             const name = getAttachmentName(attachment);
-                            const size = attachment?.size
-                              ? `${(attachment.size / 1024).toFixed(0)} KB`
-                              : "File";
-                            const href =
-                              typeof attachment === "string"
-                                ? attachment
-                                : attachment?.url ||
-                                  attachment?.path ||
-                                  attachment?.location ||
-                                  null;
+                            const size = formatAttachmentSize(
+                              attachment?.size || 0,
+                            );
+                            const href = buildAttachmentUrl(attachment);
+                            const isImg = isImageAttachment(attachment);
 
                             return (
                               <div
                                 key={`${name}-${index}`}
-                                className="flex min-w-0 items-center gap-3 rounded-2xl border border-slate-100 bg-white p-4 transition hover:border-indigo-100 hover:bg-indigo-50/10 hover:shadow-sm"
+                                className="flex min-w-0 items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 transition-all hover:border-indigo-300 hover:shadow-xl hover:shadow-indigo-500/10"
                               >
-                                <IoDocumentTextOutline
-                                  className="shrink-0 text-slate-400"
-                                  size={22}
-                                />
+                                <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-50 text-slate-400 ring-1 ring-slate-100 group-hover:bg-indigo-50 group-hover:text-indigo-600">
+                                  {isImg && href ? (
+                                    <img
+                                      src={href}
+                                      alt="Preview"
+                                      className="h-full w-full object-cover"
+                                    />
+                                  ) : (
+                                    <IoDocumentTextOutline size={24} />
+                                  )}
+                                </div>
                                 <div className="min-w-0 flex-1">
                                   {href ? (
                                     <a
-                                      className="block truncate text-sm font-bold text-slate-700 hover:text-indigo-600 hover:underline"
+                                      className="block truncate text-sm font-bold text-slate-800 transition-colors hover:text-indigo-600 hover:underline"
                                       href={href}
                                       target="_blank"
                                       rel="noreferrer"
@@ -178,7 +180,7 @@ export default function ViewNotes({ id }) {
                                       {name}
                                     </a>
                                   ) : (
-                                    <span className="block truncate text-sm font-bold text-slate-700">
+                                    <span className="block truncate text-sm font-bold text-slate-800">
                                       {name}
                                     </span>
                                   )}
@@ -204,15 +206,13 @@ export default function ViewNotes({ id }) {
               >
                 Close
               </button>
-              {isToday(data?.createdAt) && (
-                <Link
-                  to={`/update/${id}`}
-                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-8 text-sm font-bold text-white shadow-xl shadow-slate-200 transition-all hover:bg-slate-800 active:scale-95"
-                >
-                  <IoCreateOutline size={18} />
-                  Edit note
-                </Link>
-              )}
+              <Link
+                to={`/update/${id}`}
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-8 text-sm font-bold text-white shadow-xl shadow-slate-200 transition-all hover:bg-slate-800 active:scale-95"
+              >
+                <IoCreateOutline size={18} />
+                Edit note
+              </Link>
             </div>
           </section>
         </div>

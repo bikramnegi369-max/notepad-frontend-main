@@ -3,12 +3,21 @@ import { Link, useNavigate } from "react-router-dom";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { MdDeleteOutline } from "react-icons/md";
-import { IoAdd, IoCreateOutline } from "react-icons/io5";
+import {
+  IoAdd,
+  IoCreateOutline,
+  IoDocumentAttachOutline,
+} from "react-icons/io5";
 import useAuth from "../../contexts/Auth";
 import Api_Url from "../api/api";
 import dateFormat from "dateformat";
-
-const DRAFT_STORAGE_KEY = "note-create-drafts-v2";
+import {
+  isLocalDraftId,
+  loadLocalDrafts,
+  normalizeServerDrafts,
+  saveLocalDrafts,
+} from "../util/drafts";
+import AttachmentList from "../common/AttachmentList";
 
 export default function DraftPage() {
   const { logout } = useAuth();
@@ -18,58 +27,27 @@ export default function DraftPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteId, setDeleteId] = useState(null);
 
-  // axios uses default auth header set by AuthProvider
-
-  const loadLocalDrafts = () => {
-    const storedDrafts = localStorage.getItem(DRAFT_STORAGE_KEY);
-    if (!storedDrafts) return [];
-
-    try {
-      const parsed = JSON.parse(storedDrafts);
-      if (Array.isArray(parsed)) {
-        return parsed;
-      }
-      return parsed?.content ? [parsed] : [];
-    } catch (error) {
-      localStorage.removeItem(DRAFT_STORAGE_KEY);
-      return [];
-    }
-  };
-
-  const saveLocalDrafts = (nextDrafts) => {
-    if (!nextDrafts || nextDrafts.length === 0) {
-      localStorage.removeItem(DRAFT_STORAGE_KEY);
-      return;
-    }
-    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(nextDrafts));
-  };
-
   const loadDraft = useCallback(async () => {
     setIsLoading(true);
 
     const localDrafts = loadLocalDrafts();
-    if (localDrafts.length > 0) {
-      setDrafts(localDrafts);
-      setIsLoading(false);
-      return;
-    }
 
     try {
       const response = await Api_Url.get("draft");
-      const data = response.data.data;
-      const normalizedDrafts = Array.isArray(data) ? data : data ? [data] : [];
+      const normalizedDrafts = normalizeServerDrafts(response.data.data);
 
       if (normalizedDrafts.length > 0) {
-        const preparedDrafts = normalizedDrafts.map((draft) => ({
-          id:
-            draft.id ||
-            `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          title: draft.title || "",
-          content: draft.content,
-          updatedAt: draft.updatedAt || new Date().toISOString(),
-        }));
-        saveLocalDrafts(preparedDrafts);
-        setDrafts(preparedDrafts);
+        // Source of truth is the server, but keep local-only drafts
+        const merged = [...normalizedDrafts];
+        localDrafts.forEach((ld) => {
+          const exists = normalizedDrafts.some(
+            (sd) => sd.id === ld.id || (ld.noteId && sd.noteId === ld.noteId),
+          );
+          if (!exists) merged.push(ld);
+        });
+
+        const savedDrafts = saveLocalDrafts(merged);
+        setDrafts(savedDrafts);
         setIsLoading(false);
         return;
       }
@@ -77,6 +55,7 @@ export default function DraftPage() {
       // remote draft fetch failed; continue with local drafts
     }
 
+    setDrafts(localDrafts);
     setIsLoading(false);
   }, []);
 
@@ -90,16 +69,19 @@ export default function DraftPage() {
       const remaining =
         deleteId === "all" ? [] : drafts.filter((item) => item.id !== deleteId);
 
-      saveLocalDrafts(remaining);
-      setDrafts(remaining);
-
-      if (remaining.length === 0) {
-        try {
-          await Api_Url.delete("draft");
-        } catch (error) {
-          // ignore backend delete errors for local-only drafts
+      // Determine which draft(s) to delete from the backend
+      if (deleteId === "all") {
+        await Api_Url.delete("draft"); // Backend endpoint to delete all drafts for the user
+      } else {
+        // If it's a specific draft, send its ID to the backend
+        const draftToDelete = drafts.find((item) => item.id === deleteId);
+        if (draftToDelete && !isLocalDraftId(draftToDelete.id)) {
+          await Api_Url.delete(`draft/${draftToDelete.id}`);
         }
       }
+
+      saveLocalDrafts(remaining);
+      setDrafts(remaining);
 
       setDeleteId(null);
       toast.success("Draft deleted.");
@@ -117,12 +99,14 @@ export default function DraftPage() {
   };
 
   const resumeDraft = (draft) => {
-    navigate("/", {
+    const targetPath = draft.noteId ? `/update/${draft.noteId}` : "/"; // Correctly routes to update page for existing notes
+    navigate(targetPath, {
       state: {
         resumeDraft: true,
         draftId: draft.id,
         draftTitle: draft.title,
         draftContent: draft.content,
+        draftAttachments: draft.attachments || [],
       },
     });
   };
@@ -180,6 +164,12 @@ export default function DraftPage() {
                       ? dateFormat(d.updatedAt, "h:MM TT")
                       : "Just now"}
                   </span>
+                  {d.attachments?.length > 0 && (
+                    <span className="flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold text-indigo-600 ring-1 ring-indigo-100">
+                      <IoDocumentAttachOutline size={12} />
+                      {d.attachments.length}
+                    </span>
+                  )}
                 </div>
                 {d.title && (
                   <h3 className="mb-2 truncate text-base font-bold text-slate-800">
@@ -189,6 +179,15 @@ export default function DraftPage() {
                 <div className="max-h-40 overflow-hidden rounded-lg border border-gray-100 bg-gray-50 p-4 text-sm leading-6 text-gray-700">
                   <p className="whitespace-pre-wrap break-words">{d.content}</p>
                 </div>
+                {d.attachments?.length > 0 && (
+                  <div className="mt-4">
+                    <AttachmentList
+                      attachments={d.attachments}
+                      compact
+                      readOnly
+                    />
+                  </div>
+                )}
                 <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                   <button
                     type="button"
