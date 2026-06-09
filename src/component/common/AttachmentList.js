@@ -54,7 +54,8 @@ export default function AttachmentList({
         const name = getAttachmentName(attachment);
         const size = formatAttachmentSize(getAttachmentSize(attachment));
         const identity = getAttachmentIdentity(attachment);
-        const href = previewUrls.get(identity) || buildAttachmentUrl(attachment);
+        const href =
+          previewUrls.get(identity) || buildAttachmentUrl(attachment);
         const isImage = isImageAttachment(attachment);
 
         return (
@@ -64,11 +65,7 @@ export default function AttachmentList({
           >
             <div className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-lg bg-slate-50 text-slate-500">
               {isImage && href ? (
-                <img
-                  src={href}
-                  alt=""
-                  className="h-full w-full object-cover"
-                />
+                <img src={href} alt="" className="h-full w-full object-cover" />
               ) : (
                 <IoDocumentTextOutline size={22} />
               )}
@@ -93,6 +90,8 @@ export default function AttachmentList({
                 </a>
                 <a
                   href={href}
+                  target="_blank"
+                  rel="noreferrer"
                   download={name}
                   className="grid h-8 w-8 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-50 hover:text-indigo-600"
                   aria-label={`Download ${name}`}
