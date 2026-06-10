@@ -74,6 +74,7 @@ export default function Allnotes() {
 
   const resetFilters = () => {
     setSearchTerm("");
+    setSelectedDate("");
   };
 
   const handleDateChange = (e) => {
