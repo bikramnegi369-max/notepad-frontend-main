@@ -17,9 +17,8 @@ import {
 } from "../util/drafts";
 import {
   appendAttachmentsToFormData,
+  attachmentsToDraftReferences,
   filesToStoredAttachments,
-  buildAttachmentUrl,
-  getAttachmentName,
   validateFiles,
   restoreDraftAttachments,
 } from "../util/attachments";
@@ -165,7 +164,6 @@ export default function Notecreate() {
         setHasSavedDraft(loadLocalDrafts().length > 0);
         return;
       }
-
       const nextDrafts = loadLocalDrafts().filter(
         (item) => item.id !== draftIdRef.current,
       );
@@ -178,11 +176,8 @@ export default function Notecreate() {
     const id = draftIdRef.current || createDraftId();
     let attachmentsData = [];
     if (draftAttachments && draftAttachments.length > 0) {
-      // assume draftAttachments are File objects or already-serialized objects
-      const needConvert = draftAttachments[0] instanceof File;
-      attachmentsData = needConvert
-        ? await filesToStoredAttachments(draftAttachments)
-        : draftAttachments;
+      const stored = await filesToStoredAttachments(draftAttachments);
+      attachmentsData = attachmentsToDraftReferences(stored);
     }
 
     const nextDraft = {
@@ -303,35 +298,14 @@ export default function Notecreate() {
               updatedAt: draft.updatedAt || new Date().toISOString(),
             };
 
-            // If server provided attachments with URLs, fetch them and store as dataUrls
             if (
               Array.isArray(draft.attachments) &&
               draft.attachments.length > 0
             ) {
-              const attData = [];
-              for (const att of draft.attachments) {
-                if (att.dataUrl) {
-                  attData.push(att);
-                } else {
-                  const url = buildAttachmentUrl(att);
-                  const res = await fetch(url);
-                  const blob = await res.blob();
-                  const dataUrl = await new Promise((resolve) => {
-                    const r = new FileReader();
-                    r.onload = () => resolve(r.result);
-                    r.readAsDataURL(blob);
-                  });
-                  const name = getAttachmentName(att);
-                  if (dataUrl)
-                    attData.push({
-                      name,
-                      type: att.type || "",
-                      size: 0,
-                      dataUrl,
-                    });
-                }
-              }
-              drafts.push({ ...base, attachments: attData });
+              drafts.push({
+                ...base,
+                attachments: attachmentsToDraftReferences(draft.attachments),
+              });
             } else {
               drafts.push(base);
             }

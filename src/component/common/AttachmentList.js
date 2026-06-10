@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import {
   IoClose,
   IoCloudDownloadOutline,
@@ -22,9 +22,9 @@ export default function AttachmentList({
   readOnly = false,
 }) {
   const items = useMemo(() => normalizeAttachments(attachments), [attachments]);
-  const [previewUrls, setPreviewUrls] = useState(() => new Map());
 
-  useEffect(() => {
+  // Build blob URLs synchronously so images are never undefined on first render
+  const previewUrls = useMemo(() => {
     const urls = new Map();
     items.forEach((attachment) => {
       if (attachment?.file instanceof File) {
@@ -34,13 +34,14 @@ export default function AttachmentList({
         );
       }
     });
-
-    setPreviewUrls(urls);
-
-    return () => {
-      urls.forEach((url) => URL.revokeObjectURL(url));
-    };
+    return urls;
   }, [items]);
+
+  useEffect(() => {
+    return () => {
+      previewUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [previewUrls]);
 
   if (items.length === 0) return null;
 

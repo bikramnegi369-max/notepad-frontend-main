@@ -21,7 +21,14 @@ export function getIdentityValue(value) {
   if (typeof value === "string" || typeof value === "number") {
     return String(value);
   }
-  return value.id || value._id || value.userId || value.name || value.username || null;
+  return (
+    value.id ||
+    value._id ||
+    value.userId ||
+    value.name ||
+    value.username ||
+    null
+  );
 }
 
 export function getParticipantId(item) {
@@ -66,7 +73,7 @@ export function normalizeConversation(item = {}) {
       item?.createdAt ||
       item?.lastSeen ||
       "",
-    newMessages: Number(item?.unread || item?.newMessages || 0),
+    newMessages: Number(item?.unread ?? item?.newMessages ?? 0),
     isOnline: Boolean(item?.isOnline),
   };
 }
@@ -81,16 +88,34 @@ export function normalizeMessage(item = {}) {
   const sender = getIdentityValue(item?.sender);
   const from = getIdentityValue(item?.from);
   const to = getIdentityValue(item?.to);
+  const clientId =
+    item?.clientId ||
+    item?.cid ||
+    item?._cid ||
+    item?._localId ||
+    item?.localId ||
+    null;
+
+  // attachment must always be a string path/name, never a File object
+  const rawAttachment = item?.attachment || item?.filePath || null;
+  const attachment =
+    typeof rawAttachment === "string"
+      ? rawAttachment
+      : rawAttachment?.secure_url ||
+        rawAttachment?.url ||
+        rawAttachment?.path ||
+        null;
 
   return {
     ...item,
+    clientId,
     id:
       item?._id ||
       item?.id ||
-      item?.clientId ||
-      `${item?.timestamp || Date.now()}-${Math.random().toString(36).slice(2)}`,
+      clientId ||
+      `msg-${item?.timestamp || Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     message: item?.message || "",
-    attachment: item?.attachment || item?.file || item?.filePath || null,
+    attachment,
     timestamp: item?.timestamp || item?.createdAt || new Date().toISOString(),
     sender,
     from,
@@ -105,7 +130,8 @@ export function normalizeMessages(list) {
 
 export function isMessageForConversation(message, selectedUserId, currentUser) {
   if (!selectedUserId) return false;
-  const from = getIdentityValue(message?.from) || getIdentityValue(message?.sender) || "";
+  const from =
+    getIdentityValue(message?.from) || getIdentityValue(message?.sender) || "";
   const to = getIdentityValue(message?.to) || "";
   const selected = String(selectedUserId);
   const selfIds = getCurrentUserIds(currentUser);
@@ -119,7 +145,8 @@ export function isMessageForConversation(message, selectedUserId, currentUser) {
 }
 
 export function isIncomingMessage(message, currentUser, selectedUserId) {
-  const from = getIdentityValue(message?.from) || getIdentityValue(message?.sender) || "";
+  const from =
+    getIdentityValue(message?.from) || getIdentityValue(message?.sender) || "";
   const to = getIdentityValue(message?.to) || "";
   const selfIds = getCurrentUserIds(currentUser);
   const selected = selectedUserId ? String(selectedUserId) : "";
@@ -156,7 +183,7 @@ export function groupMessagesByDate(messages) {
 
 export function buildAttachmentUrl(attachment) {
   if (!attachment) return null;
-  if (/^https?:\/\//i.test(attachment)) return attachment;
+  if (/^(https?|blob|data):/i.test(attachment)) return attachment;
 
   const base = getApiRootUrl().replace(/\/$/, "");
   const normalized = String(attachment).replace(/^\/+/, "");

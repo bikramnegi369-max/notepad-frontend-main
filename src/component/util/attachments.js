@@ -13,7 +13,6 @@ export function buildAttachmentUrl(attachment) {
         attachment?.secure_url ||
         attachment?.path ||
         attachment?.location ||
-        attachment?.dataUrl ||
         attachment?.href ||
         "";
 
@@ -65,6 +64,11 @@ export function getAttachmentIdentity(attachment) {
   if (attachment instanceof File) {
     return `${attachment.name}-${attachment.size}-${attachment.lastModified}`;
   }
+  // Normalized wrapper holding a live File
+  if (attachment?.file instanceof File) {
+    const f = attachment.file;
+    return `${f.name}-${f.size}-${f.lastModified}`;
+  }
 
   return String(
     attachment._id ||
@@ -87,8 +91,29 @@ export function formatAttachmentSize(size = 0) {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// Extract the raw File from any shape: raw File, normalized wrapper, or leave as-is
+function extractFile(attachment) {
+  if (attachment instanceof File) return attachment;
+  if (attachment?.file instanceof File) return attachment.file;
+  return null;
+}
+
 export function normalizeAttachment(attachment) {
   if (!attachment) return null;
+
+  // Normalized wrapper holding a live File — pass through cleanly
+  if (attachment?.file instanceof File) {
+    return {
+      kind: "file",
+      file: attachment.file,
+      name: attachment.name || attachment.file.name,
+      type: attachment.type || attachment.file.type,
+      size: attachment.size || attachment.file.size,
+      url: null,
+      dataUrl: null,
+    };
+  }
+
   if (attachment instanceof File) {
     return {
       kind: "file",
@@ -97,18 +122,26 @@ export function normalizeAttachment(attachment) {
       type: attachment.type,
       size: attachment.size,
       url: null,
+      dataUrl: null,
     };
   }
 
   const name = getAttachmentName(attachment);
+  const url = buildAttachmentUrl(attachment);
+  // dataUrl is only the base64 data: string, never a remote URL
+  const dataUrl =
+    attachment.dataUrl && attachment.dataUrl.startsWith("data:")
+      ? attachment.dataUrl
+      : null;
+
   return {
-    kind: attachment.dataUrl ? "stored" : "remote",
+    kind: dataUrl ? "stored" : "remote",
     ...attachment,
     name,
     type: attachment.type || attachment.mimetype || "",
     size: getAttachmentSize(attachment),
-    url: buildAttachmentUrl(attachment),
-    dataUrl: attachment.dataUrl,
+    url,
+    dataUrl,
   };
 }
 
@@ -131,16 +164,15 @@ export function validateFiles(files, existingCount = 0) {
   return "";
 }
 
-export function filesToStoredAttachments(files) {
+// Converts any attachment (File, wrapper, or remote object) to a stored { dataUrl } object.
+// Non-File items (remote server attachments) are passed through unchanged.
+export function filesToStoredAttachments(attachments) {
   return Promise.all(
-    (files || []).map(
-      (file) =>
-        new Promise((resolve) => {
-          if (!(file instanceof File)) {
-            resolve(file);
-            return;
-          }
+    (attachments || []).map((attachment) => {
+      const file = extractFile(attachment);
 
+      if (file) {
+        return new Promise((resolve) => {
           const reader = new FileReader();
           reader.onload = () =>
             resolve({
@@ -152,9 +184,62 @@ export function filesToStoredAttachments(files) {
             });
           reader.onerror = () => resolve(null);
           reader.readAsDataURL(file);
-        }),
-    ),
+        });
+      }
+
+      // Already a plain object (remote/stored) — pass through
+      return Promise.resolve(attachment);
+    }),
   ).then((items) => items.filter(Boolean));
+}
+
+// Converts attachments to plain serializable references safe for localStorage / API.
+// Call filesToStoredAttachments first for local Files so they have a dataUrl.
+export function attachmentsToDraftReferences(attachments) {
+  return (attachments || []).map((attachment) => {
+    const file = extractFile(attachment);
+
+    // Still a live File with no dataUrl — mark pending, metadata only
+    if (file) {
+      return {
+        kind: "local-file",
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        url: null,
+        dataUrl: null,
+        path: null,
+        location: null,
+        key: null,
+        id: null,
+        pendingUpload: true,
+      };
+    }
+
+    // Stored (has dataUrl) or remote
+    const dataUrl =
+      attachment.dataUrl && attachment.dataUrl.startsWith("data:")
+        ? attachment.dataUrl
+        : null;
+    const url =
+      attachment.url && !/^(data:|blob:)/i.test(attachment.url)
+        ? attachment.url
+        : null;
+
+    return {
+      kind: dataUrl ? "stored" : attachment.kind || "remote",
+      name: getAttachmentName(attachment),
+      type: attachment.type || attachment.mimetype || "",
+      size: getAttachmentSize(attachment),
+      url,
+      dataUrl,
+      path: attachment.path || null,
+      location: attachment.location || null,
+      key: attachment.key || null,
+      id: attachment.id || attachment._id || null,
+      pendingUpload: false,
+    };
+  });
 }
 
 export function storedAttachmentToFile(attachment) {
@@ -178,25 +263,40 @@ export function storedAttachmentToFile(attachment) {
 }
 
 export function restoreDraftAttachments(attachments) {
-  return normalizeAttachments(attachments).map((attachment) => {
-    const restoredFile = storedAttachmentToFile(attachment);
-    return restoredFile || attachment;
-  });
+  return (attachments || [])
+    .map((attachment) => {
+      // Stored with dataUrl → restore to File
+      if (attachment?.dataUrl) {
+        const file = storedAttachmentToFile(attachment);
+        if (file) return file;
+      }
+      // Local-file ref with no data — cannot restore, skip
+      if (attachment?.pendingUpload || attachment?.kind === "local-file") {
+        return null;
+      }
+      // Remote server attachment — return as-is
+      return attachment || null;
+    })
+    .filter(Boolean);
 }
 
 export function splitAttachmentFiles(attachments) {
   return (attachments || []).reduce(
     (acc, attachment) => {
-      if (attachment instanceof File) {
-        acc.files.push(attachment);
-      } else if (attachment?.file instanceof File) {
-        acc.files.push(attachment.file);
-      } else {
-        acc.existing.push(attachment);
+      const file = extractFile(attachment);
+      if (file) {
+        acc.files.push(file);
+        return acc;
       }
+      // Remote / server attachment with a resolvable URL
+      if (buildAttachmentUrl(attachment)) {
+        acc.existing.push(attachment);
+        return acc;
+      }
+      // Local-file ref with no data — skip
       return acc;
     },
-    { files: [], existing: [] },
+    { files: [], existing: [], pending: [] },
   );
 }
 

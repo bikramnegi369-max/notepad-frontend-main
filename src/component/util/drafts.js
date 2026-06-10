@@ -1,4 +1,8 @@
-import { normalizeAttachments } from "./attachments";
+import {
+  getAttachmentName,
+  getAttachmentSize,
+  normalizeAttachments,
+} from "./attachments";
 
 export const DRAFT_STORAGE_KEY = "note-drafts-v3";
 export const LEGACY_CREATE_DRAFT_KEY = "note-create-drafts-v2";
@@ -75,6 +79,80 @@ function mergeDraftLists(...draftLists) {
   );
 }
 
+function sanitizeAttachmentForStorage(attachment) {
+  if (!attachment) return null;
+
+  // Never persist File objects or live blob references to localStorage
+  const url =
+    attachment.url && !/^blob:/i.test(attachment.url) ? attachment.url : null;
+  const dataUrl =
+    attachment.dataUrl && attachment.dataUrl.startsWith("data:")
+      ? attachment.dataUrl
+      : null;
+
+  return {
+    kind: attachment.pendingUpload ? "local-file" : attachment.kind || "remote",
+    id: attachment.id || attachment._id || null,
+    name: getAttachmentName(attachment),
+    type: attachment.type || attachment.mimetype || "",
+    size: getAttachmentSize(attachment),
+    url,
+    dataUrl,
+    path: attachment.path || null,
+    location: attachment.location || null,
+    key: attachment.key || null,
+    pendingUpload: Boolean(attachment.pendingUpload || attachment.kind === "local-file"),
+  };
+}
+
+function sanitizeDraftForStorage(draft) {
+  return {
+    ...draft,
+    attachments: normalizeAttachments(draft.attachments)
+      .map(sanitizeAttachmentForStorage)
+      .filter(Boolean),
+  };
+}
+
+function persistDrafts(drafts) {
+  localStorage.removeItem(LEGACY_CREATE_DRAFT_KEY);
+  localStorage.removeItem(LEGACY_UPDATE_DRAFT_KEY);
+  localStorage.removeItem(DRAFT_STORAGE_KEY);
+
+  try {
+    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(drafts));
+    return drafts;
+  } catch (error) {
+    if (error?.name !== "QuotaExceededError") {
+      throw error;
+    }
+
+    const withoutAttachments = drafts.map((draft) => ({
+      ...draft,
+      attachments: [],
+    }));
+
+    try {
+      localStorage.setItem(
+        DRAFT_STORAGE_KEY,
+        JSON.stringify(withoutAttachments),
+      );
+      return withoutAttachments;
+    } catch (fallbackError) {
+      const latestDraft = withoutAttachments[0] ? [withoutAttachments[0]] : [];
+      try {
+        if (latestDraft.length > 0) {
+          localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(latestDraft));
+        }
+      } catch (finalError) {
+        localStorage.removeItem(DRAFT_STORAGE_KEY);
+        return [];
+      }
+      return latestDraft;
+    }
+  }
+}
+
 function loadLegacyCreateDrafts() {
   const value = readJson(LEGACY_CREATE_DRAFT_KEY, []);
   const drafts = Array.isArray(value) ? value : value ? [value] : [];
@@ -102,12 +180,14 @@ export function loadLocalDrafts() {
 }
 
 export function saveLocalDrafts(drafts) {
-  const normalized = mergeDraftLists(drafts).filter(
-    (draft) =>
-      draft.title.trim() ||
-      draft.content.trim() ||
-      draft.attachments.length > 0,
-  );
+  const normalized = mergeDraftLists(drafts)
+    .map(sanitizeDraftForStorage)
+    .filter(
+      (draft) =>
+        draft.title.trim() ||
+        draft.content.trim() ||
+        draft.attachments.length > 0,
+    );
 
   if (normalized.length === 0) {
     localStorage.removeItem(DRAFT_STORAGE_KEY);
@@ -116,10 +196,7 @@ export function saveLocalDrafts(drafts) {
     return [];
   }
 
-  localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(normalized));
-  localStorage.removeItem(LEGACY_CREATE_DRAFT_KEY);
-  localStorage.removeItem(LEGACY_UPDATE_DRAFT_KEY);
-  return normalized;
+  return persistDrafts(normalized);
 }
 
 export function upsertLocalDraft(nextDraft) {

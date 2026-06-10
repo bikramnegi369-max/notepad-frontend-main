@@ -14,6 +14,7 @@ import {
 } from "../util/drafts";
 import {
   validateFiles,
+  attachmentsToDraftReferences,
   filesToStoredAttachments,
   restoreDraftAttachments,
   appendAttachmentsToFormData,
@@ -200,7 +201,8 @@ export default function UpdateNote() {
           }
         } else {
           const currentDraftId = draftIdRef.current || createDraftId();
-          const attachmentsData = await filesToStoredAttachments(attachments);
+          const stored = await filesToStoredAttachments(attachments);
+          const attachmentsData = attachmentsToDraftReferences(stored);
           upsertLocalDraft({
             id: currentDraftId,
             noteId: id,

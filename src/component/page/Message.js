@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BsSendFill } from "react-icons/bs";
-import { FaFileAlt } from "react-icons/fa";
 import { IoIosAttach } from "react-icons/io";
 import {
   IoChevronBack,
   IoClose,
   IoCloudOfflineOutline,
   IoDocumentAttachOutline,
+  IoDocumentOutline,
+  IoDocumentTextOutline,
+  IoDownloadOutline,
   IoImageOutline,
+  IoMusicalNoteOutline,
   IoRefresh,
+  IoVideocamOutline,
 } from "react-icons/io5";
-import { AiFillFilePdf } from "react-icons/ai";
 import dateFormat from "dateformat";
 import Messageuser from "./User";
 import { useSocket } from "../../contexts/SocketContext";
@@ -26,25 +29,145 @@ import {
   groupMessagesByDate,
   isIncomingMessage,
   isMessageForConversation,
+  normalizeConversation,
   normalizeConversations,
   normalizeMessage,
   normalizeMessages,
 } from "../util/chat";
 
-function createClientMessage({ text, fileName, to, currentUser }) {
+// ─── File type helpers ────────────────────────────────────────────────────────
+
+function getFileKind(nameOrType) {
+  if (!nameOrType) return "file";
+  const s = String(nameOrType).toLowerCase();
+  if (
+    /^image\//.test(s) ||
+    /\.(jpg|jpeg|png|gif|webp|avif|svg|bmp|ico|tiff)$/.test(s)
+  )
+    return "image";
+  if (/^video\//.test(s) || /\.(mp4|mov|avi|mkv|webm|3gp|wmv)$/.test(s))
+    return "video";
+  if (/^audio\//.test(s) || /\.(mp3|wav|ogg|aac|flac|m4a|wma)$/.test(s))
+    return "audio";
+  if (s === "application/pdf" || s.endsWith(".pdf")) return "pdf";
+  if (
+    /word|\.docx?$/.test(s) ||
+    s === "application/msword" ||
+    s.includes("wordprocessingml")
+  )
+    return "word";
+  if (
+    /excel|spreadsheet|\.xlsx?$/.test(s) ||
+    s.includes("spreadsheetml") ||
+    s.includes("ms-excel")
+  )
+    return "excel";
+  if (
+    /powerpoint|presentation|\.pptx?$/.test(s) ||
+    s.includes("presentationml")
+  )
+    return "ppt";
+  if (/^text\/|\.txt$|\.csv$|\.md$|\.json$|\.js$|\.html$|\.css$/.test(s))
+    return "text";
+  if (
+    /zip|rar|7z|tar|gz|bz2|xz/.test(s) ||
+    s.includes("zip") ||
+    s.includes("compressed")
+  )
+    return "archive";
+  return "file";
+}
+
+function FileIcon({ kind, size = 24 }) {
+  const icons = {
+    image: { bg: "bg-blue-50", text: "text-blue-500", icon: IoImageOutline },
+    video: {
+      bg: "bg-purple-50",
+      text: "text-purple-500",
+      icon: IoVideocamOutline,
+    },
+    audio: {
+      bg: "bg-pink-50",
+      text: "text-pink-500",
+      icon: IoMusicalNoteOutline,
+    },
+    pdf: {
+      bg: "bg-red-50",
+      text: "text-red-500",
+      icon: IoDocumentAttachOutline,
+    },
+    word: { bg: "bg-blue-50", text: "text-blue-600", icon: IoDocumentOutline },
+    excel: {
+      bg: "bg-green-50",
+      text: "text-green-600",
+      icon: IoDocumentOutline,
+    },
+    ppt: {
+      bg: "bg-orange-50",
+      text: "text-orange-500",
+      icon: IoDocumentOutline,
+    },
+    text: {
+      bg: "bg-slate-50",
+      text: "text-slate-500",
+      icon: IoDocumentTextOutline,
+    },
+    archive: {
+      bg: "bg-amber-50",
+      text: "text-amber-500",
+      icon: IoDocumentOutline,
+    },
+    file: {
+      bg: "bg-slate-50",
+      text: "text-slate-400",
+      icon: IoDocumentOutline,
+    },
+  };
+  const { bg, text, icon: Icon } = icons[kind] || icons.file;
+  return (
+    <div
+      className={`grid shrink-0 place-items-center rounded-xl ${bg} ${text}`}
+      style={{ width: size + 16, height: size + 16 }}
+    >
+      <Icon size={size} />
+    </div>
+  );
+}
+
+function getFileName(chat) {
+  if (chat.attachmentName) return chat.attachmentName;
+  if (chat.file instanceof File) return chat.file.name;
+  const url = chat.attachment || "";
+  const decoded = decodeURIComponent(url);
+  const part = decoded.split("/").pop().split("?")[0];
+  return part || "Attachment";
+}
+
+// ─── createClientMessage ─────────────────────────────────────────────────────
+
+function createClientMessage({ text, file, preview, to, currentUser }) {
   const now = new Date().toISOString();
-  return normalizeMessage({
-    clientId: `local-${Date.now()}`,
-    message: text,
-    attachment: fileName,
+  const clientId = `optimistic-${Date.now()}`;
+  return {
+    clientId,
+    id: clientId,
+    _id: clientId,
+    message: text || "",
+    attachment: file?.name || null,
+    attachmentName: file?.name || null,
+    attachmentType: file?.type || null,
+    attachmentSize: file?.size || null,
+    preview: preview || null,
+    file: file || null,
     timestamp: now,
-    createdAt: now,
     from: currentUser?.userId || currentUser?.name,
     sender: currentUser?.userId || currentUser?.name,
     to,
     status: "sending",
-  });
+  };
 }
+
+// ─── Main component ──────────────────────────────────────────────────────────
 
 export default function Message() {
   const [selectedUser, setSelectedUser] = useState(null);
@@ -66,6 +189,7 @@ export default function Message() {
   const messageList = useListMessage();
   const selectedUserId = getParticipantId(selectedUser);
   const isConnected = Boolean(socket?.connected);
+
   const currentUser = useMemo(
     () => ({
       id: cookies?.id,
@@ -76,10 +200,10 @@ export default function Message() {
     [cookies?.id, cookies?.name, cookies?.userId, cookies?.username],
   );
 
-  const clearAttachment = useCallback(() => {
+  const clearAttachment = useCallback((shouldRevoke = true) => {
     setSelectedFile(null);
     setFilePreview((current) => {
-      if (current) URL.revokeObjectURL(current);
+      if (shouldRevoke && current) URL.revokeObjectURL(current);
       return null;
     });
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -89,9 +213,7 @@ export default function Message() {
     connect();
     return () => {
       disconnect();
-      Object.values(typingTimeoutsRef.current).forEach((timer) =>
-        clearTimeout(timer),
-      );
+      Object.values(typingTimeoutsRef.current).forEach(clearTimeout);
       typingTimeoutsRef.current = {};
     };
   }, [connect, disconnect]);
@@ -113,6 +235,13 @@ export default function Message() {
       if (!socket?.connected || !targetId) return;
       setIsRequestingMessages(true);
       socket.emit(CHAT_EVENTS.messages, targetId);
+
+      // Proactively clear unread locally when requesting chat history
+      setUsers((prev) =>
+        prev.map((u) =>
+          getParticipantId(u) === targetId ? { ...u, newMessages: 0 } : u,
+        ),
+      );
     },
     [socket],
   );
@@ -126,7 +255,14 @@ export default function Message() {
     };
 
     const handleMessages = (data) => {
-      setUserChats(normalizeMessages(data));
+      const next = normalizeMessages(data);
+      setUserChats((prev) => {
+        const pending = prev.filter((m) => m.status === "sending");
+        if (pending.length === 0) return next;
+        const confirmedIds = new Set(next.map((m) => m.id));
+        const stillPending = pending.filter((m) => !confirmedIds.has(m.id));
+        return [...next, ...stillPending];
+      });
       setIsRequestingMessages(false);
     };
 
@@ -146,18 +282,78 @@ export default function Message() {
 
       if (belongsToOpenChat) {
         setUserChats((prev) => {
-          const pendingIndex = prev.findIndex(
-            (item) =>
-              item.status === "sending" &&
-              !isIncoming &&
-              item.message === incoming.message &&
-              item.attachment === incoming.attachment,
-          );
-          if (pendingIndex >= 0) {
-            const next = [...prev];
-            next[pendingIndex] = incoming;
-            return next;
+          // 1. Identify if this is a confirmation of a local optimistic message
+          const matchIndex = prev.findIndex((m) => {
+            const isOptimistic =
+              m.status === "sending" ||
+              String(m._id || m.id || "").startsWith("optimistic-");
+
+            if (!isOptimistic || isIncoming) return false;
+
+            // PRIMARY: clientId round-trip
+            const serverIdRef =
+              incoming.clientId || incoming._id || incoming.id;
+            if (
+              m.clientId &&
+              serverIdRef &&
+              String(m.clientId) === String(serverIdRef)
+            )
+              return true;
+
+            // FALLBACK: mirror AdminChat's proven simple logic — never compare filenames
+            const norm = (t) => (t || "").trim().toLowerCase();
+            const messagesMatch = norm(m.message) === norm(incoming.message);
+            const attachmentStatusMatch =
+              !!(m.attachmentName || m.file?.name) === !!incoming.attachment;
+
+            const timeDiff = Math.abs(
+              new Date(m.timestamp).getTime() -
+                new Date(incoming.timestamp).getTime(),
+            );
+
+            return messagesMatch && attachmentStatusMatch && timeDiff < 300000;
+          });
+
+          if (matchIndex >= 0) {
+            const updatedChats = [...prev];
+            const local = prev[matchIndex];
+
+            // Server has a real URL now — drop the blob preview so the
+            // bubble switches to the permanent Cloudinary URL
+            const serverHasRealUrl = !!(
+              incoming.attachment &&
+              !String(incoming.attachment).startsWith("blob:")
+            );
+
+            updatedChats[matchIndex] = {
+              ...local,
+              ...incoming,
+              status: "sent",
+              id: incoming.id || incoming._id || local.id,
+              _id: incoming._id || incoming.id || local._id,
+              // ✅ Drop blob once server confirms a real URL, keep it while still uploading
+              preview: serverHasRealUrl ? null : local.preview || null,
+              // ✅ Keep File object for metadata (name, size, type display)
+              file: local.file || null,
+              // ✅ Prefer server values, fall back to local
+              attachmentName: incoming.attachmentName || local.attachmentName,
+              attachmentType: incoming.attachmentType || local.attachmentType,
+              attachmentSize: incoming.attachmentSize || local.attachmentSize,
+            };
+            return updatedChats;
           }
+
+          // 2. Prevent duplication of already-confirmed messages (received via broadcast/history)
+          const isAlreadyPresent = prev.some((m) => {
+            if (m.status === "sending") return false;
+            const mId = String(m.id || m._id || "");
+            const inId = String(incoming.id || incoming._id || "");
+            return mId && inId && mId === inId;
+          });
+
+          if (isAlreadyPresent) return prev;
+
+          // 3. New message (either incoming or an echo we couldn't match)
           return [...prev, incoming];
         });
       }
@@ -168,7 +364,8 @@ export default function Message() {
           if (id !== fromId && id !== incoming.to) return user;
           return {
             ...user,
-            lastMessage: incoming.message || (incoming.attachment && "Attachment"),
+            lastMessage:
+              incoming.message || (incoming.attachment ? "Attachment" : ""),
             updatedAt: incoming.timestamp,
             newMessages:
               belongsToOpenChat || id === selectedUserId
@@ -183,9 +380,7 @@ export default function Message() {
       const from = payload?.from || payload?.sender;
       if (!from) return;
       setTypingUsers((prev) => new Set([...prev, from]));
-      if (typingTimeoutsRef.current[from]) {
-        clearTimeout(typingTimeoutsRef.current[from]);
-      }
+      clearTimeout(typingTimeoutsRef.current[from]);
       typingTimeoutsRef.current[from] = setTimeout(() => {
         setTypingUsers((prev) => {
           const next = new Set(prev);
@@ -197,11 +392,21 @@ export default function Message() {
     };
 
     const handleUsers = (list) => {
-      const normalized = normalizeConversations(list).map((user) => ({
-        ...user,
+      const normalized = normalizeConversations(list).map((u) => ({
+        ...u,
         isOnline: true,
       }));
-      setUsers((prev) => mergeConversations(prev, normalized));
+      setUsers((prev) => {
+        const merged = mergeConversations(prev, normalized);
+        if (selectedUserId) {
+          return merged.map((u) =>
+            getParticipantId(u) === selectedUserId
+              ? { ...u, newMessages: 0 }
+              : u,
+          );
+        }
+        return merged;
+      });
     };
 
     socket.on("connect", handleConnect);
@@ -210,7 +415,6 @@ export default function Message() {
     socket.on(CHAT_EVENTS.typing, handleTyping);
     socket.on(CHAT_EVENTS.users, handleUsers);
     socket.on(CHAT_EVENTS.onlineUsers, handleUsers);
-
     if (socket.connected) handleConnect();
 
     return () => {
@@ -225,20 +429,39 @@ export default function Message() {
 
   useEffect(() => {
     const recentChats = normalizeConversations(messageList);
-    const online = normalizeConversations(onlineUsers).map((user) => ({
-      ...user,
+    const online = normalizeConversations(onlineUsers).map((u) => ({
+      ...u,
       isOnline: true,
     }));
-    setUsers((prev) => mergeConversations(prev, recentChats, online));
-  }, [messageList, onlineUsers]);
+    setUsers((prev) => {
+      const merged = mergeConversations(prev, recentChats, online);
+      if (selectedUserId) {
+        return merged.map((u) =>
+          getParticipantId(u) === selectedUserId ? { ...u, newMessages: 0 } : u,
+        );
+      }
+      return merged;
+    });
+  }, [messageList, onlineUsers, selectedUserId]);
 
+  // Auto-scroll on new messages
   useEffect(() => {
-    if (!chatContainerRef.current) return;
-    chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-  }, [userChats, selectedUserId, isRequestingMessages]);
+    const el = chatContainerRef.current;
+    if (!el) return;
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (isNearBottom) el.scrollTop = el.scrollHeight;
+  }, [userChats]);
+
+  // Always scroll when switching users
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop =
+        chatContainerRef.current.scrollHeight;
+    }
+  }, [selectedUserId, isRequestingMessages]);
 
   const selectedConversation = users.find(
-    (user) => getParticipantId(user) === selectedUserId,
+    (u) => getParticipantId(u) === selectedUserId,
   );
   const isSelectedUserOnline = Boolean(selectedConversation?.isOnline);
   const groupedMessages = useMemo(
@@ -248,14 +471,13 @@ export default function Message() {
 
   const filteredUsers = useMemo(() => {
     const term = search.trim().toLowerCase();
-    const enhanced = users.map((user) => ({
-      ...user,
-      isTyping: typingUsers.has(getParticipantId(user)),
+    const enhanced = users.map((u) => ({
+      ...u,
+      isTyping: typingUsers.has(getParticipantId(u)),
     }));
-
     if (!term) return enhanced;
-    return enhanced.filter((user) =>
-      `${getDisplayName(user)} ${user.lastMessage || ""}`
+    return enhanced.filter((u) =>
+      `${getDisplayName(u)} ${u.lastMessage || ""}`
         .toLowerCase()
         .includes(term),
     );
@@ -264,25 +486,26 @@ export default function Message() {
   const handleFileChange = (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
-
     const maxBytes = CHAT_CONFIG.maxAttachmentSizeMb * 1024 * 1024;
     if (file.size > maxBytes) {
-      setSendError(`Attachment must be ${CHAT_CONFIG.maxAttachmentSizeMb} MB or less.`);
+      setSendError(
+        `Attachment must be ${CHAT_CONFIG.maxAttachmentSizeMb} MB or less.`,
+      );
       event.target.value = "";
       return;
     }
-
     clearAttachment();
     setSendError("");
     setSelectedFile(file);
-    setFilePreview(URL.createObjectURL(file));
+    if (file.type.startsWith("image/")) {
+      setFilePreview(URL.createObjectURL(file));
+    }
   };
 
   const handleMessage = (event) => {
     const value = event.target.value;
     setMessage(value);
     setSendError("");
-
     const now = Date.now();
     if (
       selectedUserId &&
@@ -295,10 +518,9 @@ export default function Message() {
     }
   };
 
-  const handleSubmitMessage = async () => {
+  const handleSubmitMessage = () => {
     const text = message.trim();
     if ((!text && !selectedFile) || !selectedUserId) return;
-
     if (!socket?.connected) {
       setSendError("Chat is offline. Reconnect before sending.");
       return;
@@ -306,34 +528,38 @@ export default function Message() {
 
     const optimistic = createClientMessage({
       text,
-      fileName: selectedFile?.name,
+      file: selectedFile,
+      preview: filePreview,
       to: selectedUserId,
       currentUser,
     });
     setUserChats((prev) => [...prev, optimistic]);
     setUsers((prev) =>
-      prev.map((user) =>
-        getParticipantId(user) === selectedUserId
+      prev.map((u) =>
+        getParticipantId(u) === selectedUserId
           ? {
-              ...user,
+              ...u,
               lastMessage: text || "Attachment",
               updatedAt: optimistic.timestamp,
               newMessages: 0,
             }
-          : user,
+          : u,
       ),
     );
 
     socket.emit(CHAT_EVENTS.privateMessage, {
+      clientId: optimistic.clientId,
       message: text,
-      selectedFile,
+      selectedFile, // Raw file for binary transport
       filePath: selectedFile?.name || null,
+      attachmentName: selectedFile?.name || null,
+      attachmentType: selectedFile?.type || null,
       to: selectedUserId,
       sender: currentUser.userId || currentUser.name,
     });
 
     setMessage("");
-    clearAttachment();
+    clearAttachment(false);
     setSendError("");
     setTimeout(refreshLists, 300);
   };
@@ -366,10 +592,9 @@ export default function Message() {
   return (
     <div className="h-[calc(100dvh-5.5rem)] min-h-[calc(100vh-5.5rem)] bg-slate-50 lg:px-6 lg:py-6">
       <div className="mx-auto flex h-full w-full max-w-7xl flex-col gap-4 lg:flex-row">
+        {/* Sidebar */}
         <div
-          className={`h-full transition-all duration-300 lg:w-[360px] ${
-            selectedUser ? "hidden lg:block" : "w-full"
-          }`}
+          className={`h-full transition-all duration-300 lg:w-[360px] ${selectedUser ? "hidden lg:block" : "w-full"}`}
         >
           <div className="h-full overflow-hidden border-slate-200 bg-white shadow-sm lg:rounded-2xl lg:border">
             <Messageuser
@@ -383,13 +608,13 @@ export default function Message() {
           </div>
         </div>
 
+        {/* Chat panel */}
         <div
-          className={`h-full transition-all duration-300 lg:flex-1 ${
-            !selectedUser ? "hidden lg:block" : "w-full"
-          }`}
+          className={`h-full transition-all duration-300 lg:flex-1 ${!selectedUser ? "hidden lg:block" : "w-full"}`}
         >
           {selectedUser ? (
             <section className="flex h-full flex-col overflow-hidden border-slate-200 bg-white shadow-sm lg:rounded-2xl lg:border">
+              {/* Header */}
               <header className="shrink-0 border-b border-slate-100 bg-white/95 px-3 py-3 backdrop-blur sm:px-5">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">
@@ -397,7 +622,7 @@ export default function Message() {
                       type="button"
                       onClick={() => setSelectedUser(null)}
                       className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-slate-600 transition hover:bg-slate-100 lg:hidden"
-                      aria-label="Back to conversations"
+                      aria-label="Back"
                     >
                       <IoChevronBack size={24} />
                     </button>
@@ -410,12 +635,8 @@ export default function Message() {
                       </h2>
                       <div className="mt-0.5 flex items-center gap-1.5">
                         <span
-                          className={`h-2 w-2 rounded-full ${
-                            isSelectedUserOnline
-                              ? "bg-emerald-500"
-                              : "bg-slate-300"
-                          }`}
-                        ></span>
+                          className={`h-2 w-2 rounded-full ${isSelectedUserOnline ? "bg-emerald-500" : "bg-slate-300"}`}
+                        />
                         <p className="text-xs font-semibold text-slate-500">
                           {typingUsers.has(selectedUserId)
                             ? "typing..."
@@ -426,22 +647,22 @@ export default function Message() {
                       </div>
                     </div>
                   </div>
-
                   <button
                     type="button"
                     onClick={refreshLists}
                     className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
-                    aria-label="Refresh chat"
+                    aria-label="Refresh"
                   >
                     <IoRefresh size={20} />
                   </button>
                 </div>
               </header>
 
+              {/* Messages */}
               <div className="min-h-0 flex-1 bg-slate-50/70 px-2 py-3 sm:px-5">
                 <div
                   ref={chatContainerRef}
-                  className="flex h-full flex-col gap-3 overflow-y-auto px-1 pb-2"
+                  className="flex h-full flex-col gap-1 overflow-y-auto px-1 pb-2"
                 >
                   {isRequestingMessages ? (
                     <ChatState title="Loading messages" />
@@ -453,10 +674,10 @@ export default function Message() {
                             {date}
                           </span>
                         </div>
-                        <div className="space-y-2">
+                        <div className="flex flex-col gap-1">
                           {chats.map((chat) => (
                             <MessageBubble
-                              key={chat.id}
+                              key={chat.clientId || chat.id}
                               chat={chat}
                               currentUser={currentUser}
                               selectedUserId={selectedUserId}
@@ -474,6 +695,7 @@ export default function Message() {
                 </div>
               </div>
 
+              {/* Attachment staging */}
               {selectedFile && (
                 <AttachmentPreview
                   file={selectedFile}
@@ -482,12 +704,14 @@ export default function Message() {
                 />
               )}
 
+              {/* Error */}
               {sendError && (
                 <div className="border-t border-red-100 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 sm:px-5">
                   {sendError}
                 </div>
               )}
 
+              {/* Input */}
               <footer className="shrink-0 border-t border-slate-100 bg-white p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:p-4">
                 <div className="flex items-end gap-2">
                   <label
@@ -501,7 +725,6 @@ export default function Message() {
                     ref={fileInputRef}
                     id="file-upload"
                     type="file"
-                    name="attachment"
                     className="hidden"
                     onChange={handleFileChange}
                   />
@@ -510,7 +733,6 @@ export default function Message() {
                     aria-label="Message input"
                     rows={1}
                     className="max-h-32 min-h-11 w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-[15px] font-medium leading-5 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
-                    name="message"
                     value={message}
                     onChange={handleMessage}
                     onKeyDown={handleKeyDown}
@@ -519,7 +741,9 @@ export default function Message() {
                     type="button"
                     aria-label="Send message"
                     onClick={handleSubmitMessage}
-                    disabled={!isConnected || (!message.trim() && !selectedFile)}
+                    disabled={
+                      !isConnected || (!message.trim() && !selectedFile)
+                    }
                     className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-blue-600 text-white transition hover:bg-blue-700 active:scale-95 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
                   >
                     <BsSendFill size={18} />
@@ -532,7 +756,7 @@ export default function Message() {
               <div className="max-w-sm">
                 <img
                   src="image/chatimage.png"
-                  alt="Chat placeholder"
+                  alt=""
                   className="mx-auto mb-6 h-40 w-40 object-contain"
                 />
                 <h2 className="text-2xl font-black tracking-tight text-slate-950">
@@ -557,41 +781,122 @@ export default function Message() {
   );
 }
 
+// ─── MessageBubble ────────────────────────────────────────────────────────────
+
 function MessageBubble({ chat, currentUser, selectedUserId }) {
   const incoming = isIncomingMessage(chat, currentUser, selectedUserId);
-  const attachmentUrl = buildAttachmentUrl(chat.attachment);
+
+  // Resolve the URL: prefer blob preview (optimistic) → Cloudinary/server URL
+  const rawAttachment =
+    typeof chat.attachment === "string" ? chat.attachment : null;
+  const attachmentUrl =
+    chat.preview || (rawAttachment ? buildAttachmentUrl(rawAttachment) : null);
+
+  // Determine file type from mime type first, then filename
+  const mimeOrName =
+    chat.attachmentType ||
+    chat.file?.type ||
+    rawAttachment ||
+    chat.file?.name ||
+    "";
+  const kind = getFileKind(mimeOrName);
+  const fileName = getFileName(chat);
+  const fileSize = chat.attachmentSize || chat.file?.size || null;
+  const hasAttachment = Boolean(chat.attachment);
+
+  const bubble = incoming
+    ? "rounded-bl-md border border-slate-200 bg-white text-slate-800"
+    : "rounded-br-md bg-blue-600 text-white";
 
   return (
-    <div className={`flex ${incoming ? "justify-start" : "justify-end"}`}>
+    <div className={`flex ${incoming ? "justify-start" : "justify-end"} px-1`}>
       <div
-        className={`max-w-[86%] break-words rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed shadow-sm sm:max-w-[72%] ${
-          incoming
-            ? "rounded-bl-md border border-slate-200 bg-white text-slate-800"
-            : "rounded-br-md bg-blue-600 text-white"
-        }`}
+        className={`max-w-[86%] sm:max-w-[72%] break-words rounded-2xl shadow-sm ${bubble}`}
       >
-        {chat.attachment && (
-          <a
-            className={`mb-2 inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold transition ${
-              incoming
-                ? "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                : "bg-white/15 text-white hover:bg-white/25"
-            }`}
-            href={attachmentUrl || undefined}
-            target="_blank"
-            rel="noreferrer"
+        {hasAttachment && (
+          <div
+            className={`${chat.message ? "rounded-t-2xl" : "rounded-2xl"} overflow-hidden`}
           >
-            <FaFileAlt size={15} />
-            View attachment
-          </a>
+            {kind === "image" && attachmentUrl ? (
+              // ── Image preview ──────────────────────────────────────────────
+              <a
+                href={attachmentUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="relative block"
+              >
+                <img
+                  src={attachmentUrl}
+                  alt={fileName}
+                  className="max-h-72 w-full object-cover transition-opacity duration-200"
+                  style={{ minWidth: 180 }}
+                />
+                {/* Sending overlay */}
+                {chat.status === "sending" && (
+                  <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/20">
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  </div>
+                )}
+              </a>
+            ) : (
+              // ── Non-image file card ────────────────────────────────────────
+              <div
+                className={`flex items-center gap-3 px-3 py-2.5 ${!chat.message ? "px-4 py-3" : ""}`}
+              >
+                <FileIcon kind={kind} size={22} />
+                <div className="min-w-0 flex-1">
+                  <p
+                    className={`truncate text-sm font-semibold leading-tight ${incoming ? "text-slate-800" : "text-white"}`}
+                  >
+                    {fileName}
+                  </p>
+                  {fileSize && (
+                    <p
+                      className={`text-[11px] font-medium mt-0.5 ${incoming ? "text-slate-400" : "text-blue-200"}`}
+                    >
+                      {formatFileSize(fileSize)}
+                    </p>
+                  )}
+                </div>
+                {attachmentUrl && chat.status !== "sending" && (
+                  <a
+                    href={attachmentUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    download={fileName}
+                    onClick={(e) => e.stopPropagation()}
+                    className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg transition ${
+                      incoming
+                        ? "text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                        : "text-blue-200 hover:bg-white/15 hover:text-white"
+                    }`}
+                    aria-label={`Download ${fileName}`}
+                  >
+                    <IoDownloadOutline size={17} />
+                  </a>
+                )}
+                {chat.status === "sending" && (
+                  <span
+                    className={`text-[10px] font-semibold ${incoming ? "text-slate-400" : "text-blue-200"}`}
+                  >
+                    ↑
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
         )}
+
         {chat.message && (
-          <p className="whitespace-pre-wrap break-words">{chat.message}</p>
+          <p
+            className={`whitespace-pre-wrap break-words px-4 py-2.5 text-[15px] leading-relaxed ${hasAttachment ? "pt-2" : ""}`}
+          >
+            {chat.message}
+          </p>
         )}
+
         <p
-          className={`mt-1 text-right text-[10px] font-semibold ${
-            incoming ? "text-slate-400" : "text-blue-100"
-          }`}
+          className={`px-4 pb-2 text-right text-[10px] font-semibold ${hasAttachment && !chat.message ? "pt-0" : ""} ${incoming ? "text-slate-400" : "text-blue-200"}`}
         >
           {dateFormat(chat.timestamp || new Date(), "h:MM TT")}
           {chat.status === "sending" ? " · sending" : ""}
@@ -601,54 +906,46 @@ function MessageBubble({ chat, currentUser, selectedUserId }) {
   );
 }
 
+// ─── AttachmentPreview (before sending) ──────────────────────────────────────
+
 function AttachmentPreview({ file, preview, onRemove }) {
-  const isImage = file?.type?.startsWith("image/");
-  const isPdf = file?.type === "application/pdf";
+  const kind = getFileKind(file?.type || file?.name || "");
+  const isImage = kind === "image";
 
   return (
     <div className="shrink-0 border-t border-slate-100 bg-white px-4 py-3 sm:px-5">
-      <div className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-white text-slate-600 ring-1 ring-slate-200">
-            {isImage ? (
-              <IoImageOutline size={24} />
-            ) : isPdf ? (
-              <AiFillFilePdf size={26} />
-            ) : (
-              <IoDocumentAttachOutline size={24} />
-            )}
-          </div>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-bold text-slate-900">
-              {file?.name}
-            </p>
-            <p className="text-xs font-medium text-slate-500">
-              {formatFileSize(file?.size)}
-            </p>
-          </div>
+      <div className="flex items-center gap-3 rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200">
+        {isImage && preview ? (
+          <img
+            src={preview}
+            alt="Preview"
+            className="h-12 w-12 shrink-0 rounded-lg object-cover ring-1 ring-slate-200"
+          />
+        ) : (
+          <FileIcon kind={kind} size={20} />
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-bold text-slate-900">
+            {file?.name}
+          </p>
+          <p className="text-xs font-medium text-slate-400">
+            {formatFileSize(file?.size)}
+          </p>
         </div>
-
-        <div className="flex shrink-0 items-center gap-3">
-          {isImage && preview && (
-            <img
-              src={preview}
-              alt="Attachment preview"
-              className="h-12 w-12 rounded-lg object-cover"
-            />
-          )}
-          <button
-            type="button"
-            className="grid h-9 w-9 place-items-center rounded-lg text-slate-500 transition hover:bg-white hover:text-red-600"
-            onClick={onRemove}
-            aria-label="Remove attachment"
-          >
-            <IoClose size={20} />
-          </button>
-        </div>
+        <button
+          type="button"
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-white hover:text-red-600"
+          onClick={onRemove}
+          aria-label="Remove attachment"
+        >
+          <IoClose size={18} />
+        </button>
       </div>
     </div>
   );
 }
+
+// ─── ChatState ────────────────────────────────────────────────────────────────
 
 function ChatState({ title, description }) {
   return (
@@ -659,25 +956,42 @@ function ChatState({ title, description }) {
   );
 }
 
+// ─── mergeConversations ───────────────────────────────────────────────────────
+
 function mergeConversations(...groups) {
   const map = new Map();
-  groups.flat().filter(Boolean).forEach((conversation) => {
-    const normalized = normalizeConversations([conversation])[0];
-    if (!normalized) return;
-    const existing = map.get(normalized.id);
-    map.set(normalized.id, {
-      ...existing,
-      ...normalized,
-      newMessages: normalized.newMessages || existing?.newMessages || 0,
-      isOnline: normalized.isOnline || existing?.isOnline || false,
+  groups
+    .flat()
+    .filter(Boolean)
+    .forEach((conversation) => {
+      const normalized = normalizeConversation(conversation);
+      if (!normalized) return;
+      const existing = map.get(normalized.id);
+
+      // Authoritative update: trust unread count if property exists in source (even if 0)
+      const hasUnreadInfo =
+        conversation.unread !== undefined ||
+        conversation.newMessages !== undefined;
+
+      map.set(normalized.id, {
+        ...existing,
+        ...normalized,
+        newMessages: hasUnreadInfo
+          ? normalized.newMessages
+          : (existing?.newMessages ?? normalized.newMessages ?? 0),
+        isOnline: normalized.isOnline || existing?.isOnline || false,
+      });
     });
-  });
 
   return Array.from(map.values()).sort((a, b) => {
     const unreadDiff = (b.newMessages || 0) - (a.newMessages || 0);
     const timeDiff = String(b.updatedAt || "").localeCompare(
       String(a.updatedAt || ""),
     );
-    return unreadDiff || timeDiff || getDisplayName(a).localeCompare(getDisplayName(b));
+    return (
+      unreadDiff ||
+      timeDiff ||
+      getDisplayName(a).localeCompare(getDisplayName(b))
+    );
   });
 }
