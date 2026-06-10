@@ -8,12 +8,14 @@ export const CHAT_EVENTS = {
   typing: "typing",
   users: "users",
   onlineUsers: "getOnlineUsers",
+  markRead: "markRead", // New event to sync unread status
 };
 
 export const CHAT_CONFIG = {
   typingThrottleMs: 1200,
   typingVisibleMs: 2500,
   maxAttachmentSizeMb: 15,
+  notificationSoundUrl: "https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3", // Clean "Ping" sound
 };
 
 export function getIdentityValue(value) {
@@ -195,4 +197,24 @@ export function formatFileSize(bytes = 0) {
   if (!bytes) return "File";
   if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Plays a notification sound for new incoming messages.
+ * Uses a singleton audio object to avoid overlapping issues.
+ */
+let notificationAudio = null;
+export function playNotificationSound() {
+  try {
+    if (!notificationAudio) {
+      notificationAudio = new Audio(CHAT_CONFIG.notificationSoundUrl);
+    }
+    // Reset to start if already playing or finished
+    notificationAudio.currentTime = 0;
+    notificationAudio.play().catch((err) => {
+      console.warn("Audio playback prevented by browser policy until user interaction.", err);
+    });
+  } catch (e) {
+    console.error("Failed to play notification sound", e);
+  }
 }

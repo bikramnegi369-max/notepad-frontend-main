@@ -33,6 +33,7 @@ import {
   normalizeConversations,
   normalizeMessage,
   normalizeMessages,
+  playNotificationSound,
 } from "../util/chat";
 
 // ─── File type helpers ────────────────────────────────────────────────────────
@@ -234,6 +235,11 @@ export default function Message() {
     (targetId) => {
       if (!socket?.connected || !targetId) return;
       setIsRequestingMessages(true);
+
+      // Notify server to clear unread count for this conversation
+      socket.emit(CHAT_EVENTS.markRead, targetId);
+      socket.emit(CHAT_EVENTS.messageList); // Refresh global unread counts
+
       socket.emit(CHAT_EVENTS.messages, targetId);
 
       // Proactively clear unread locally when requesting chat history
@@ -281,6 +287,9 @@ export default function Message() {
       );
 
       if (belongsToOpenChat) {
+        // If the chat is open, immediately mark the new message as read on server
+        socket.emit(CHAT_EVENTS.markRead, fromId);
+
         setUserChats((prev) => {
           // 1. Identify if this is a confirmation of a local optimistic message
           const matchIndex = prev.findIndex((m) => {
