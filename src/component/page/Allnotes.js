@@ -20,6 +20,7 @@ export default function Allnotes() {
   const [allNotes, setAllNotes] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedDate, setSelectedDate] = useState(""); // New state for date filter
   const { logout } = useAuth();
   const navigate = useNavigate();
 
@@ -28,6 +29,7 @@ export default function Allnotes() {
       setIsLoading(true);
       const params = new URLSearchParams();
       if (searchTerm.trim()) params.append("search", searchTerm.trim());
+      if (selectedDate) params.append("date", selectedDate); // Add date filter
 
       const response = await Api_Url.get(`getNotes?${params.toString()}`);
       setAllNotes(response.data.data || []);
@@ -42,7 +44,7 @@ export default function Allnotes() {
     } finally {
       setIsLoading(false);
     }
-  }, [searchTerm, logout, navigate]);
+  }, [searchTerm, selectedDate, logout, navigate]);
 
   useEffect(() => {
     const timeoutId = setTimeout(async () => {
@@ -74,7 +76,11 @@ export default function Allnotes() {
     setSearchTerm("");
   };
 
-  const hasActiveFilters = searchTerm;
+  const handleDateChange = (e) => {
+    setSelectedDate(e.target.value);
+  };
+
+  const hasActiveFilters = searchTerm || selectedDate;
 
   const isCurrentDate = (noteDate) => {
     const today = dateFormat(new Date(), "yyyy-mm-dd");
@@ -104,7 +110,7 @@ export default function Allnotes() {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
             <div className="relative flex-1 sm:w-72">
               <IoSearch
                 className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"
@@ -120,6 +126,23 @@ export default function Allnotes() {
               {searchTerm && (
                 <button
                   onClick={() => setSearchTerm("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 transition hover:text-gray-600"
+                >
+                  <IoCloseCircle size={18} />
+                </button>
+              )}
+            </div>
+            <div className="relative flex-1 sm:w-48">
+              <input
+                type="date"
+                className="min-h-[44px] w-full rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm text-gray-950 outline-none transition placeholder:text-gray-400 focus:border-green-500 focus:bg-white focus:ring-4 focus:ring-green-500/10"
+                value={selectedDate}
+                onChange={handleDateChange}
+                aria-label="Filter by date"
+              />
+              {selectedDate && (
+                <button
+                  onClick={() => setSelectedDate("")}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 transition hover:text-gray-600"
                 >
                   <IoCloseCircle size={18} />
