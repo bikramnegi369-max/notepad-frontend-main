@@ -60,10 +60,12 @@ export const SocketContextProvider = ({ children }) => {
   }, [handleOnline]);
 
   useEffect(() => {
-    if (!cookies?.token) {
+    if (cookies?.token && cookies?.name) {
+      connect();
+    } else {
       disconnect();
     }
-  }, [cookies?.token, disconnect]);
+  }, [cookies?.token, cookies?.name, connect, disconnect]);
 
   return (
     <SocketContext.Provider

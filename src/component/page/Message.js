@@ -211,13 +211,11 @@ export default function Message() {
   }, []);
 
   useEffect(() => {
-    connect();
     return () => {
-      disconnect();
       Object.values(typingTimeoutsRef.current).forEach(clearTimeout);
       typingTimeoutsRef.current = {};
     };
-  }, [connect, disconnect]);
+  }, []);
 
   useEffect(() => {
     return () => {
