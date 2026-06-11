@@ -25,6 +25,7 @@ import {
 import {
   IoAttach,
   IoClose,
+  IoChevronBack,
   IoCloudDoneOutline,
   IoSaveOutline,
 } from "react-icons/io5";
@@ -419,7 +420,7 @@ export default function Notecreate() {
               onClick={() => navigate(-1)}
               className="sm:hidden p-1"
             >
-              <IoClose size={24} className="text-gray-500" />
+              <IoChevronBack size={24} className="text-gray-500" />
             </button>
             {hasSavedDraft &&
               !shouldResumeDraft &&
@@ -485,7 +486,7 @@ export default function Notecreate() {
                     setHasSavedDraft(remainingDrafts.length > 0);
                     setAttachments([]);
                     hasUserEditedRef.current = false;
-                    
+
                     // Reset the form values to empty
                     formik.resetForm({ values: EMPTY_NOTE });
 
