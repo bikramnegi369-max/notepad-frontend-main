@@ -30,7 +30,7 @@ const Header = () => {
   const location = useLocation();
   const { cookies, removeCookie, setAuth } = useAuth();
   const { socket } = useSocket();
-  const messageList = useListMessage();
+  const { messageList } = useListMessage();
   const [menuOpen, setMenuOpen] = useState(false);
 
   // Centralized user identity for chat logic
@@ -61,16 +61,20 @@ const Header = () => {
     if (!socket) return;
 
     const handleNewMessage = (data) => {
-      // If message is for us and we aren't the sender
       if (isIncomingMessage(data, currentUser)) {
         playNotificationSound();
-        refreshLists(); // Ensure the global unread count stays in sync
+        // Only trigger a refresh from the header if the user is NOT on the chat page.
+        // While on the message page, the Message component handles its own 
+        // refresh logic to prevent race conditions with "mark as read" events.
+        if (location.pathname !== "/message") {
+          refreshLists();
+        }
       }
     };
 
     socket.on(CHAT_EVENTS.privateMessage, handleNewMessage);
     return () => socket.off(CHAT_EVENTS.privateMessage, handleNewMessage);
-  }, [socket, currentUser, refreshLists]);
+  }, [socket, currentUser, refreshLists, location.pathname]);
 
   // Sync browser tab title with unread status
   useEffect(() => {

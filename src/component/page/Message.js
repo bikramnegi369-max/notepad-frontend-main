@@ -33,7 +33,6 @@ import {
   normalizeConversations,
   normalizeMessage,
   normalizeMessages,
-  playNotificationSound,
 } from "../util/chat";
 
 // ─── File type helpers ────────────────────────────────────────────────────────
@@ -187,7 +186,7 @@ export default function Message() {
   const chatContainerRef = useRef(null);
   const { socket, onlineUsers, connect, disconnect } = useSocket();
   const { cookies } = useAuth();
-  const messageList = useListMessage();
+  const { messageList, markConversationRead } = useListMessage();
   const selectedUserId = getParticipantId(selectedUser);
   const isConnected = Boolean(socket?.connected);
 
@@ -233,21 +232,22 @@ export default function Message() {
     (targetId) => {
       if (!socket?.connected || !targetId) return;
       setIsRequestingMessages(true);
-
-      // Notify server to clear unread count for this conversation
       socket.emit(CHAT_EVENTS.markRead, targetId);
-      socket.emit(CHAT_EVENTS.messageList); // Refresh global unread counts
-
       socket.emit(CHAT_EVENTS.messages, targetId);
 
-      // Proactively clear unread locally when requesting chat history
+      // Optimistically clear unread in global context
+      markConversationRead(targetId);
+
+      // Staggered refresh to ensure server DB has updated before fetching list
+      setTimeout(refreshLists, 600);
+
       setUsers((prev) =>
         prev.map((u) =>
           getParticipantId(u) === targetId ? { ...u, newMessages: 0 } : u,
         ),
       );
     },
-    [socket],
+    [socket, markConversationRead, refreshLists],
   );
 
   useEffect(() => {
@@ -285,8 +285,16 @@ export default function Message() {
       );
 
       if (belongsToOpenChat) {
-        // If the chat is open, immediately mark the new message as read on server
-        socket.emit(CHAT_EVENTS.markRead, fromId);
+        if (isIncoming) {
+          // Mark as read immediately on server
+          socket.emit(CHAT_EVENTS.markRead, selectedUserId);
+          socket.emit(CHAT_EVENTS.messageList);
+          // Optimistically clear unread in global context (Header/Title sync)
+          markConversationRead(selectedUserId);
+
+          // Staggered refresh to handle server latency and ensure sync
+          setTimeout(refreshLists, 600);
+        }
 
         setUserChats((prev) => {
           // 1. Identify if this is a confirmation of a local optimistic message
@@ -363,6 +371,11 @@ export default function Message() {
           // 3. New message (either incoming or an echo we couldn't match)
           return [...prev, incoming];
         });
+      } else if (isIncoming) {
+        // If the message is for a chat that is NOT currently open, we still
+        // need to refresh the global list so the Header badge and sidebar
+        // update their unread counts immediately.
+        refreshLists();
       }
 
       setUsers((prev) =>
@@ -432,10 +445,24 @@ export default function Message() {
       socket.off(CHAT_EVENTS.users, handleUsers);
       socket.off(CHAT_EVENTS.onlineUsers, handleUsers);
     };
-  }, [socket, selectedUserId, currentUser, refreshLists, requestMessages]);
+  }, [
+    socket,
+    selectedUserId,
+    currentUser,
+    refreshLists,
+    requestMessages,
+    markConversationRead,
+  ]);
 
+  // Sync global messageList + onlineUsers into local users state.
+  // IMPORTANT: Always force newMessages = 0 for the open conversation
+  // before merging, so a stale server count never re-stamps the badge.
   useEffect(() => {
-    const recentChats = normalizeConversations(messageList);
+    const recentChats = normalizeConversations(messageList).map((conv) =>
+      selectedUserId && conv.id === selectedUserId
+        ? { ...conv, newMessages: 0 } // ← zero BEFORE merge
+        : conv,
+    );
     const online = normalizeConversations(onlineUsers).map((u) => ({
       ...u,
       isOnline: true,

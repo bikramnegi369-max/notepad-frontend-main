@@ -6,6 +6,7 @@ import reportWebVitals from "./reportWebVitals";
 import { AuthProvider } from "./contexts/Auth";
 import { CookiesProvider } from "react-cookie";
 import { SocketContextProvider } from "./contexts/SocketContext";
+import { ListMessageProvider } from "./contexts/useListMessage";
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(
@@ -13,7 +14,9 @@ root.render(
     <CookiesProvider>
       <AuthProvider>
         <SocketContextProvider>
-          <App />
+          <ListMessageProvider>
+            <App />
+          </ListMessageProvider>
         </SocketContextProvider>
       </AuthProvider>
     </CookiesProvider>
