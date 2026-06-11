@@ -35,6 +35,24 @@ export const ListMessageProvider = ({ children }) => {
     );
   }, []);
 
+  // New method to update a specific conversation's unread count
+  const updateConversationUnread = useCallback(
+    (conversationId, unreadCount) => {
+      if (!conversationId) return;
+
+      setMessageList((prev) =>
+        prev.map((conv) => {
+          const id = conv.id || conv._id || conv.sender || conv.from || conv.to;
+          if (id && String(id) === String(conversationId)) {
+            return { ...conv, unread: unreadCount, newMessages: unreadCount };
+          }
+          return conv;
+        }),
+      );
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!socket) return;
 
@@ -42,8 +60,17 @@ export const ListMessageProvider = ({ children }) => {
       const incoming = data || [];
       const now = Date.now();
 
-      setMessageList(
-        incoming.map((conv) => {
+      setMessageList((prev) => {
+        // Create a map of existing conversations for quick lookup
+        const prevMap = new Map();
+        prev.forEach((conv) => {
+          const id = String(
+            conv.id || conv._id || conv.sender || conv.from || conv.to || "",
+          );
+          prevMap.set(id, conv);
+        });
+
+        return incoming.map((conv) => {
           const id = String(
             conv.id || conv._id || conv.sender || conv.from || conv.to || "",
           );
@@ -59,9 +86,15 @@ export const ListMessageProvider = ({ children }) => {
             }
           }
 
+          // Preserve any local optimistic updates
+          const existing = prevMap.get(id);
+          if (existing && existing._optimisticUnread === 0) {
+            return { ...conv, unread: 0, newMessages: 0 };
+          }
+
           return conv;
-        }),
-      );
+        });
+      });
     };
 
     socket.on("messageList", handler);
@@ -73,7 +106,9 @@ export const ListMessageProvider = ({ children }) => {
   }, [socket]);
 
   return (
-    <ListMessageContext.Provider value={{ messageList, markConversationRead }}>
+    <ListMessageContext.Provider
+      value={{ messageList, markConversationRead, updateConversationUnread }}
+    >
       {children}
     </ListMessageContext.Provider>
   );
@@ -82,7 +117,11 @@ export const ListMessageProvider = ({ children }) => {
 export default function useListMessage() {
   const context = useContext(ListMessageContext);
   if (!context) {
-    return { messageList: [], markConversationRead: () => {} };
+    return {
+      messageList: [],
+      markConversationRead: () => {},
+      updateConversationUnread: () => {},
+    };
   }
   return context;
 }

@@ -15,7 +15,7 @@ export const CHAT_CONFIG = {
   typingThrottleMs: 1200,
   typingVisibleMs: 2500,
   maxAttachmentSizeMb: 15,
-  notificationSoundUrl: "https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3", // Clean "Ping" sound
+  notificationSoundUrl: "/notification.mp3", // Clean "Ping" sound
 };
 
 export function getIdentityValue(value) {
@@ -212,7 +212,10 @@ export function playNotificationSound() {
     // Reset to start if already playing or finished
     notificationAudio.currentTime = 0;
     notificationAudio.play().catch((err) => {
-      console.warn("Audio playback prevented by browser policy until user interaction.", err);
+      console.warn(
+        "Audio playback prevented by browser policy until user interaction.",
+        err,
+      );
     });
   } catch (e) {
     console.error("Failed to play notification sound", e);

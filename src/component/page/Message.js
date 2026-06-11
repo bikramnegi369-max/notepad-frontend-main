@@ -188,7 +188,8 @@ export default function Message() {
   const scrollTimeoutRef = useRef(null);
   const { socket, onlineUsers, connect, disconnect } = useSocket();
   const { cookies } = useAuth();
-  const { messageList, markConversationRead } = useListMessage();
+  const { messageList, markConversationRead, updateConversationUnread } =
+    useListMessage();
   const selectedUserId = getParticipantId(selectedUser);
   // Ref so socket handlers always read the current value without needing
   // selectedUserId as a dependency — prevents listener teardown on every click.
@@ -250,6 +251,11 @@ export default function Message() {
       readConversationsRef.current.add(targetId);
       markConversationRead(targetId);
 
+      // Update global unread count
+      if (updateConversationUnread) {
+        updateConversationUnread(targetId, 0);
+      }
+
       setTimeout(refreshLists, 600);
 
       setUsers((prev) =>
@@ -258,7 +264,7 @@ export default function Message() {
         ),
       );
     },
-    [socket, markConversationRead, refreshLists],
+    [socket, markConversationRead, refreshLists, updateConversationUnread],
   );
 
   // Function to scroll user list to top with retry logic
@@ -326,10 +332,21 @@ export default function Message() {
         ),
       );
 
+      // Reset unread in global messageList for header sync
+      if (updateConversationUnread) {
+        updateConversationUnread(selected.id, 0);
+      }
+
       // Scroll to top after selecting user
       scrollUserListToTop();
     },
-    [requestMessages, refreshLists, clearAttachment, scrollUserListToTop],
+    [
+      requestMessages,
+      refreshLists,
+      clearAttachment,
+      scrollUserListToTop,
+      updateConversationUnread,
+    ],
   );
 
   // Auto-scroll user list to top when a chat is selected (re-render trigger)
@@ -386,6 +403,12 @@ export default function Message() {
           markConversationRead(activeId);
           // Track that this conversation has been read while open
           readConversationsRef.current.add(activeId);
+
+          // Update global unread count to 0 for this conversation
+          if (updateConversationUnread) {
+            updateConversationUnread(activeId, 0);
+          }
+
           setTimeout(refreshLists, 600);
         }
 
@@ -471,6 +494,11 @@ export default function Message() {
             newUnreadCount = (user.newMessages || 0) + 1;
           }
 
+          // Sync with global messageList for header
+          if (updateConversationUnread) {
+            updateConversationUnread(id, newUnreadCount);
+          }
+
           return {
             ...user,
             lastMessage:
@@ -512,6 +540,10 @@ export default function Message() {
         return merged.map((u) => {
           const userId = getParticipantId(u);
           if (userId === activeId || readConversationsRef.current.has(userId)) {
+            // Also sync with global state
+            if (updateConversationUnread) {
+              updateConversationUnread(userId, 0);
+            }
             return { ...u, newMessages: 0 };
           }
           return u;
@@ -537,6 +569,10 @@ export default function Message() {
         return merged.map((u) => {
           const userId = getParticipantId(u);
           if (userId === activeId || readConversationsRef.current.has(userId)) {
+            // Also sync with global state
+            if (updateConversationUnread) {
+              updateConversationUnread(userId, 0);
+            }
             return { ...u, newMessages: 0 };
           }
           return u;
@@ -566,6 +602,7 @@ export default function Message() {
     refreshLists,
     requestMessages,
     markConversationRead,
+    updateConversationUnread,
   ]);
 
   useEffect(() => {
@@ -706,6 +743,11 @@ export default function Message() {
           : u,
       ),
     );
+
+    // Also update global messageList to keep header in sync
+    if (updateConversationUnread) {
+      updateConversationUnread(selectedUserId, 0);
+    }
 
     socket.emit(CHAT_EVENTS.privateMessage, {
       clientId: optimistic.clientId,
