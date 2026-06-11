@@ -184,10 +184,20 @@ export default function Message() {
   const typingTimeoutsRef = useRef({});
   const lastTypingAtRef = useRef(0);
   const chatContainerRef = useRef(null);
+  const userListContainerRef = useRef(null);
+  const scrollTimeoutRef = useRef(null);
   const { socket, onlineUsers, connect, disconnect } = useSocket();
   const { cookies } = useAuth();
   const { messageList, markConversationRead } = useListMessage();
   const selectedUserId = getParticipantId(selectedUser);
+  // Ref so socket handlers always read the current value without needing
+  // selectedUserId as a dependency — prevents listener teardown on every click.
+  const selectedUserIdRef = useRef(selectedUserId);
+  selectedUserIdRef.current = selectedUserId;
+
+  // Track which conversations have been read while they were open
+  const readConversationsRef = useRef(new Set());
+
   const isConnected = Boolean(socket?.connected);
 
   const currentUser = useMemo(
@@ -213,6 +223,7 @@ export default function Message() {
     return () => {
       Object.values(typingTimeoutsRef.current).forEach(clearTimeout);
       typingTimeoutsRef.current = {};
+      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
     };
   }, []);
 
@@ -235,10 +246,10 @@ export default function Message() {
       socket.emit(CHAT_EVENTS.markRead, targetId);
       socket.emit(CHAT_EVENTS.messages, targetId);
 
-      // Optimistically clear unread in global context
+      // Mark this conversation as read
+      readConversationsRef.current.add(targetId);
       markConversationRead(targetId);
 
-      // Staggered refresh to ensure server DB has updated before fetching list
       setTimeout(refreshLists, 600);
 
       setUsers((prev) =>
@@ -250,12 +261,97 @@ export default function Message() {
     [socket, markConversationRead, refreshLists],
   );
 
+  // Function to scroll user list to top with retry logic
+  const scrollUserListToTop = useCallback(() => {
+    if (!userListContainerRef.current) return;
+
+    // Clear any pending scroll timeout
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+
+    // Try to find the actual scrollable element inside the container
+    const scrollableElement =
+      userListContainerRef.current.querySelector(
+        '.overflow-y-auto, [style*="overflow-y"]',
+      ) || userListContainerRef.current;
+
+    const attemptScroll = (attempt = 0) => {
+      if (scrollableElement) {
+        scrollableElement.scrollTop = 0;
+        // Verify scroll worked, if not retry
+        if (scrollableElement.scrollTop !== 0 && attempt < 3) {
+          scrollTimeoutRef.current = setTimeout(
+            () => attemptScroll(attempt + 1),
+            50,
+          );
+        }
+      } else if (attempt < 3) {
+        scrollTimeoutRef.current = setTimeout(
+          () => attemptScroll(attempt + 1),
+          50,
+        );
+      }
+    };
+
+    // Try immediate scroll
+    attemptScroll();
+
+    // Also try after a delay to ensure DOM is fully updated
+    scrollTimeoutRef.current = setTimeout(() => {
+      if (scrollableElement) {
+        scrollableElement.scrollTop = 0;
+      }
+    }, 150);
+  }, []);
+
+  // When switching away from a conversation, we don't need to do anything
+  // because readConversationsRef keeps track of which ones were read
+  const handleSelectUser = useCallback(
+    (user) => {
+      if (!user) return;
+      const selected = { ...user, id: getParticipantId(user) };
+      setSelectedUser(selected);
+      setMessage("");
+      setSendError("");
+      clearAttachment();
+      setUserChats([]);
+      requestMessages(selected.id);
+      refreshLists();
+      setUsers((prev) =>
+        prev.map((item) =>
+          getParticipantId(item) === selected.id
+            ? { ...item, newMessages: 0 }
+            : item,
+        ),
+      );
+
+      // Scroll to top after selecting user
+      scrollUserListToTop();
+    },
+    [requestMessages, refreshLists, clearAttachment, scrollUserListToTop],
+  );
+
+  // Auto-scroll user list to top when a chat is selected (re-render trigger)
+  useEffect(() => {
+    if (selectedUserId) {
+      scrollUserListToTop();
+    }
+  }, [selectedUserId, scrollUserListToTop]);
+
+  // Also scroll when users list updates (in case reordering happened)
+  useEffect(() => {
+    if (selectedUserId) {
+      scrollUserListToTop();
+    }
+  }, [users, selectedUserId, scrollUserListToTop]);
+
   useEffect(() => {
     if (!socket) return;
 
     const handleConnect = () => {
       refreshLists();
-      if (selectedUserId) requestMessages(selectedUserId);
+      if (selectedUserIdRef.current) requestMessages(selectedUserIdRef.current);
     };
 
     const handleMessages = (data) => {
@@ -271,41 +367,35 @@ export default function Message() {
     };
 
     const handlePrivate = (data) => {
+      const activeId = selectedUserIdRef.current;
       const incoming = normalizeMessage(data);
       const fromId = incoming.from || incoming.sender;
-      const isIncoming = isIncomingMessage(
-        incoming,
-        currentUser,
-        selectedUserId,
-      );
+      const isIncoming = isIncomingMessage(incoming, currentUser, activeId);
       const belongsToOpenChat = isMessageForConversation(
         incoming,
-        selectedUserId,
+        activeId,
         currentUser,
       );
 
       if (belongsToOpenChat) {
+        // Message belongs to the currently open chat
         if (isIncoming) {
-          // Mark as read immediately on server
-          socket.emit(CHAT_EVENTS.markRead, selectedUserId);
+          // Mark as read on server since we're viewing this chat
+          socket.emit(CHAT_EVENTS.markRead, activeId);
           socket.emit(CHAT_EVENTS.messageList);
-          // Optimistically clear unread in global context (Header/Title sync)
-          markConversationRead(selectedUserId);
-
-          // Staggered refresh to handle server latency and ensure sync
+          markConversationRead(activeId);
+          // Track that this conversation has been read while open
+          readConversationsRef.current.add(activeId);
           setTimeout(refreshLists, 600);
         }
 
         setUserChats((prev) => {
-          // 1. Identify if this is a confirmation of a local optimistic message
           const matchIndex = prev.findIndex((m) => {
             const isOptimistic =
               m.status === "sending" ||
               String(m._id || m.id || "").startsWith("optimistic-");
-
             if (!isOptimistic || isIncoming) return false;
 
-            // PRIMARY: clientId round-trip
             const serverIdRef =
               incoming.clientId || incoming._id || incoming.id;
             if (
@@ -315,42 +405,32 @@ export default function Message() {
             )
               return true;
 
-            // FALLBACK: mirror AdminChat's proven simple logic — never compare filenames
             const norm = (t) => (t || "").trim().toLowerCase();
             const messagesMatch = norm(m.message) === norm(incoming.message);
             const attachmentStatusMatch =
               !!(m.attachmentName || m.file?.name) === !!incoming.attachment;
-
             const timeDiff = Math.abs(
               new Date(m.timestamp).getTime() -
                 new Date(incoming.timestamp).getTime(),
             );
-
             return messagesMatch && attachmentStatusMatch && timeDiff < 300000;
           });
 
           if (matchIndex >= 0) {
             const updatedChats = [...prev];
             const local = prev[matchIndex];
-
-            // Server has a real URL now — drop the blob preview so the
-            // bubble switches to the permanent Cloudinary URL
             const serverHasRealUrl = !!(
               incoming.attachment &&
               !String(incoming.attachment).startsWith("blob:")
             );
-
             updatedChats[matchIndex] = {
               ...local,
               ...incoming,
               status: "sent",
               id: incoming.id || incoming._id || local.id,
               _id: incoming._id || incoming.id || local._id,
-              // ✅ Drop blob once server confirms a real URL, keep it while still uploading
               preview: serverHasRealUrl ? null : local.preview || null,
-              // ✅ Keep File object for metadata (name, size, type display)
               file: local.file || null,
-              // ✅ Prefer server values, fall back to local
               attachmentName: incoming.attachmentName || local.attachmentName,
               attachmentType: incoming.attachmentType || local.attachmentType,
               attachmentSize: incoming.attachmentSize || local.attachmentSize,
@@ -358,39 +438,45 @@ export default function Message() {
             return updatedChats;
           }
 
-          // 2. Prevent duplication of already-confirmed messages (received via broadcast/history)
           const isAlreadyPresent = prev.some((m) => {
             if (m.status === "sending") return false;
             const mId = String(m.id || m._id || "");
             const inId = String(incoming.id || incoming._id || "");
             return mId && inId && mId === inId;
           });
-
           if (isAlreadyPresent) return prev;
 
-          // 3. New message (either incoming or an echo we couldn't match)
           return [...prev, incoming];
         });
       } else if (isIncoming) {
-        // If the message is for a chat that is NOT currently open, we still
-        // need to refresh the global list so the Header badge and sidebar
-        // update their unread counts immediately.
+        // Message belongs to a different conversation
         refreshLists();
       }
 
+      // Update the conversation list with the new message
       setUsers((prev) =>
         prev.map((user) => {
           const id = getParticipantId(user);
           if (id !== fromId && id !== incoming.to) return user;
+
+          // Check if this conversation was read while it was open
+          const wasRead = readConversationsRef.current.has(id);
+          const isCurrentlySelected = id === activeId;
+          const shouldHaveUnread =
+            !isCurrentlySelected && !wasRead && isIncoming;
+
+          // If the conversation is currently selected or was read before, keep unread count at 0
+          let newUnreadCount = 0;
+          if (shouldHaveUnread) {
+            newUnreadCount = (user.newMessages || 0) + 1;
+          }
+
           return {
             ...user,
             lastMessage:
               incoming.message || (incoming.attachment ? "Attachment" : ""),
             updatedAt: incoming.timestamp,
-            newMessages:
-              belongsToOpenChat || id === selectedUserId
-                ? 0
-                : (user.newMessages || 0) + 1,
+            newMessages: newUnreadCount,
           };
         }),
       );
@@ -411,21 +497,50 @@ export default function Message() {
       }, CHAT_CONFIG.typingVisibleMs);
     };
 
-    const handleUsers = (list) => {
+    const handleUsersList = (list) => {
+      const normalized = normalizeConversations(list);
+      setUsers((prev) => {
+        const merged = mergeConversations(
+          selectedUserIdRef.current,
+          prev,
+          normalized,
+        );
+        if (conversationsEqual(prev, merged)) return prev;
+        const activeId = selectedUserIdRef.current;
+        if (!activeId) return merged;
+        // Ensure selected conversation and read conversations have 0 unread messages
+        return merged.map((u) => {
+          const userId = getParticipantId(u);
+          if (userId === activeId || readConversationsRef.current.has(userId)) {
+            return { ...u, newMessages: 0 };
+          }
+          return u;
+        });
+      });
+    };
+
+    const handleOnlineUsers = (list) => {
       const normalized = normalizeConversations(list).map((u) => ({
         ...u,
         isOnline: true,
       }));
       setUsers((prev) => {
-        const merged = mergeConversations(prev, normalized);
-        if (selectedUserId) {
-          return merged.map((u) =>
-            getParticipantId(u) === selectedUserId
-              ? { ...u, newMessages: 0 }
-              : u,
-          );
-        }
-        return merged;
+        const merged = mergeConversations(
+          selectedUserIdRef.current,
+          prev,
+          normalized,
+        );
+        if (conversationsEqual(prev, merged)) return prev;
+        const activeId = selectedUserIdRef.current;
+        if (!activeId) return merged;
+        // Ensure selected conversation and read conversations have 0 unread messages
+        return merged.map((u) => {
+          const userId = getParticipantId(u);
+          if (userId === activeId || readConversationsRef.current.has(userId)) {
+            return { ...u, newMessages: 0 };
+          }
+          return u;
+        });
       });
     };
 
@@ -433,8 +548,8 @@ export default function Message() {
     socket.on(CHAT_EVENTS.messages, handleMessages);
     socket.on(CHAT_EVENTS.privateMessage, handlePrivate);
     socket.on(CHAT_EVENTS.typing, handleTyping);
-    socket.on(CHAT_EVENTS.users, handleUsers);
-    socket.on(CHAT_EVENTS.onlineUsers, handleUsers);
+    socket.on(CHAT_EVENTS.users, handleUsersList);
+    socket.on(CHAT_EVENTS.onlineUsers, handleOnlineUsers);
     if (socket.connected) handleConnect();
 
     return () => {
@@ -442,37 +557,45 @@ export default function Message() {
       socket.off(CHAT_EVENTS.messages, handleMessages);
       socket.off(CHAT_EVENTS.privateMessage, handlePrivate);
       socket.off(CHAT_EVENTS.typing, handleTyping);
-      socket.off(CHAT_EVENTS.users, handleUsers);
-      socket.off(CHAT_EVENTS.onlineUsers, handleUsers);
+      socket.off(CHAT_EVENTS.users, handleUsersList);
+      socket.off(CHAT_EVENTS.onlineUsers, handleOnlineUsers);
     };
   }, [
     socket,
-    selectedUserId,
     currentUser,
     refreshLists,
     requestMessages,
     markConversationRead,
   ]);
 
-  // Sync global messageList + onlineUsers into local users state.
-  // IMPORTANT: Always force newMessages = 0 for the open conversation
-  // before merging, so a stale server count never re-stamps the badge.
   useEffect(() => {
-    const recentChats = normalizeConversations(messageList).map((conv) =>
-      selectedUserId && conv.id === selectedUserId
-        ? { ...conv, newMessages: 0 } // ← zero BEFORE merge
-        : conv,
+    const recentChats = normalizeConversations(messageList).map(
+      ({ isOnline: _drop, ...rest }) => rest,
     );
     const online = normalizeConversations(onlineUsers).map((u) => ({
       ...u,
       isOnline: true,
     }));
     setUsers((prev) => {
-      const merged = mergeConversations(prev, recentChats, online);
+      const merged = mergeConversations(
+        selectedUserId,
+        prev,
+        recentChats,
+        online,
+      );
+      if (conversationsEqual(prev, merged)) return prev;
+      // Ensure selected conversation and read conversations have 0 unread messages
       if (selectedUserId) {
-        return merged.map((u) =>
-          getParticipantId(u) === selectedUserId ? { ...u, newMessages: 0 } : u,
-        );
+        return merged.map((u) => {
+          const userId = getParticipantId(u);
+          if (
+            userId === selectedUserId ||
+            readConversationsRef.current.has(userId)
+          ) {
+            return { ...u, newMessages: 0 };
+          }
+          return u;
+        });
       }
       return merged;
     });
@@ -568,12 +691,15 @@ export default function Message() {
       currentUser,
     });
     setUserChats((prev) => [...prev, optimistic]);
+
+    // Optimistically update the conversation list without refreshing from server
+    // Ensure newMessages remains 0 for the selected conversation
     setUsers((prev) =>
       prev.map((u) =>
         getParticipantId(u) === selectedUserId
           ? {
               ...u,
-              lastMessage: text || "Attachment",
+              lastMessage: text || (selectedFile ? "Attachment" : ""),
               updatedAt: optimistic.timestamp,
               newMessages: 0,
             }
@@ -584,7 +710,7 @@ export default function Message() {
     socket.emit(CHAT_EVENTS.privateMessage, {
       clientId: optimistic.clientId,
       message: text,
-      selectedFile, // Raw file for binary transport
+      selectedFile,
       filePath: selectedFile?.name || null,
       attachmentName: selectedFile?.name || null,
       attachmentType: selectedFile?.type || null,
@@ -595,25 +721,6 @@ export default function Message() {
     setMessage("");
     clearAttachment(false);
     setSendError("");
-    setTimeout(refreshLists, 300);
-  };
-
-  const handleSelectUser = (user) => {
-    if (!user) return;
-    const selected = { ...user, id: getParticipantId(user) };
-    setSelectedUser(selected);
-    setMessage("");
-    setSendError("");
-    clearAttachment();
-    setUserChats([]);
-    requestMessages(selected.id);
-    setUsers((prev) =>
-      prev.map((item) =>
-        getParticipantId(item) === selected.id
-          ? { ...item, newMessages: 0 }
-          : item,
-      ),
-    );
   };
 
   const handleKeyDown = (event) => {
@@ -630,7 +737,10 @@ export default function Message() {
         <div
           className={`h-full transition-all duration-300 lg:w-[360px] ${selectedUser ? "hidden lg:block" : "w-full"}`}
         >
-          <div className="h-full overflow-hidden border-slate-200 bg-white shadow-sm lg:rounded-2xl lg:border">
+          <div
+            ref={userListContainerRef}
+            className="h-full overflow-hidden border-slate-200 bg-white shadow-sm lg:rounded-2xl lg:border"
+          >
             <Messageuser
               handleId={handleSelectUser}
               userId={selectedUserId}
@@ -638,6 +748,7 @@ export default function Message() {
               search={search}
               onSearch={setSearch}
               isConnected={isConnected}
+              selectedUserId={selectedUserId}
             />
           </div>
         </div>
@@ -820,13 +931,11 @@ export default function Message() {
 function MessageBubble({ chat, currentUser, selectedUserId }) {
   const incoming = isIncomingMessage(chat, currentUser, selectedUserId);
 
-  // Resolve the URL: prefer blob preview (optimistic) → Cloudinary/server URL
   const rawAttachment =
     typeof chat.attachment === "string" ? chat.attachment : null;
   const attachmentUrl =
     chat.preview || (rawAttachment ? buildAttachmentUrl(rawAttachment) : null);
 
-  // Determine file type from mime type first, then filename
   const mimeOrName =
     chat.attachmentType ||
     chat.file?.type ||
@@ -852,7 +961,6 @@ function MessageBubble({ chat, currentUser, selectedUserId }) {
             className={`${chat.message ? "rounded-t-2xl" : "rounded-2xl"} overflow-hidden`}
           >
             {kind === "image" && attachmentUrl ? (
-              // ── Image preview ──────────────────────────────────────────────
               <a
                 href={attachmentUrl}
                 target="_blank"
@@ -865,7 +973,6 @@ function MessageBubble({ chat, currentUser, selectedUserId }) {
                   className="max-h-72 w-full object-cover transition-opacity duration-200"
                   style={{ minWidth: 180 }}
                 />
-                {/* Sending overlay */}
                 {chat.status === "sending" && (
                   <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/20">
                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
@@ -873,7 +980,6 @@ function MessageBubble({ chat, currentUser, selectedUserId }) {
                 )}
               </a>
             ) : (
-              // ── Non-image file card ────────────────────────────────────────
               <div
                 className={`flex items-center gap-3 px-3 py-2.5 ${!chat.message ? "px-4 py-3" : ""}`}
               >
@@ -940,7 +1046,7 @@ function MessageBubble({ chat, currentUser, selectedUserId }) {
   );
 }
 
-// ─── AttachmentPreview (before sending) ──────────────────────────────────────
+// ─── AttachmentPreview ──────────────────────────────────────────────────────
 
 function AttachmentPreview({ file, preview, onRemove }) {
   const kind = getFileKind(file?.type || file?.name || "");
@@ -990,9 +1096,25 @@ function ChatState({ title, description }) {
   );
 }
 
+// ─── conversationsEqual ───────────────────────────────────────────────────────
+
+function conversationsEqual(a, b) {
+  if (a.length !== b.length) return false;
+  return a.every((u, i) => {
+    const v = b[i];
+    return (
+      u.id === v.id &&
+      u.newMessages === v.newMessages &&
+      u.isOnline === v.isOnline &&
+      u.lastMessage === v.lastMessage &&
+      u.updatedAt === v.updatedAt
+    );
+  });
+}
+
 // ─── mergeConversations ───────────────────────────────────────────────────────
 
-function mergeConversations(...groups) {
+function mergeConversations(selectedUserId = null, ...groups) {
   const map = new Map();
   groups
     .flat()
@@ -1002,7 +1124,6 @@ function mergeConversations(...groups) {
       if (!normalized) return;
       const existing = map.get(normalized.id);
 
-      // Authoritative update: trust unread count if property exists in source (even if 0)
       const hasUnreadInfo =
         conversation.unread !== undefined ||
         conversation.newMessages !== undefined;
@@ -1013,19 +1134,27 @@ function mergeConversations(...groups) {
         newMessages: hasUnreadInfo
           ? normalized.newMessages
           : (existing?.newMessages ?? normalized.newMessages ?? 0),
-        isOnline: normalized.isOnline || existing?.isOnline || false,
+        isOnline: normalized.isOnline ?? existing?.isOnline ?? false,
       });
     });
 
-  return Array.from(map.values()).sort((a, b) => {
-    const unreadDiff = (b.newMessages || 0) - (a.newMessages || 0);
-    const timeDiff = String(b.updatedAt || "").localeCompare(
-      String(a.updatedAt || ""),
-    );
-    return (
-      unreadDiff ||
-      timeDiff ||
-      getDisplayName(a).localeCompare(getDisplayName(b))
-    );
+  const conversations = Array.from(map.values());
+
+  return conversations.sort((a, b) => {
+    const aId = getParticipantId(a);
+    const bId = getParticipantId(b);
+    const aIsSelected = selectedUserId && aId === selectedUserId;
+    const bIsSelected = selectedUserId && bId === selectedUserId;
+
+    if (aIsSelected && !bIsSelected) return -1;
+    if (!aIsSelected && bIsSelected) return 1;
+
+    const timeA = a.updatedAt || "";
+    const timeB = b.updatedAt || "";
+    const timeDiff = String(timeB).localeCompare(String(timeA));
+
+    if (timeDiff !== 0) return timeDiff;
+
+    return getDisplayName(a).localeCompare(getDisplayName(b));
   });
 }
