@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   IoClose,
   IoCloudDownloadOutline,
@@ -58,7 +58,7 @@ export default function AttachmentList({
         URL.revokeObjectURL(url);
       });
     };
-  }, [items]);
+  }, [items, urls]);
 
   const getPreviewUrl = (attachment, index) => {
     if (attachment?.file instanceof File) {

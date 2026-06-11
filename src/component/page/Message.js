@@ -186,7 +186,7 @@ export default function Message() {
   const chatContainerRef = useRef(null);
   const userListContainerRef = useRef(null);
   const scrollTimeoutRef = useRef(null);
-  const { socket, onlineUsers, connect, disconnect } = useSocket();
+  const { socket, onlineUsers } = useSocket();
   const { cookies } = useAuth();
   const { messageList, markConversationRead, updateConversationUnread } =
     useListMessage();
