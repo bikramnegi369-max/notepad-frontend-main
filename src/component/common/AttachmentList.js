@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   IoClose,
   IoCloudDownloadOutline,
@@ -22,26 +22,51 @@ export default function AttachmentList({
   readOnly = false,
 }) {
   const items = useMemo(() => normalizeAttachments(attachments), [attachments]);
+  const [urls, setUrls] = useState(new Map());
 
-  // Build blob URLs synchronously so images are never undefined on first render
-  const previewUrls = useMemo(() => {
-    const urls = new Map();
-    items.forEach((attachment) => {
+  // Create blob URLs for new files and cleanup old ones
+  useEffect(() => {
+    const newUrls = new Map();
+    const oldUrls = new Map(urls);
+
+    items.forEach((attachment, index) => {
       if (attachment?.file instanceof File) {
-        urls.set(
-          getAttachmentIdentity(attachment),
-          URL.createObjectURL(attachment.file),
-        );
+        const id = getAttachmentIdentity(attachment) || `item-${index}`;
+
+        // Check if we already have a URL for this file (by identity)
+        if (!oldUrls.has(id)) {
+          const url = URL.createObjectURL(attachment.file);
+          newUrls.set(id, url);
+        } else {
+          // Reuse existing URL
+          newUrls.set(id, oldUrls.get(id));
+          oldUrls.delete(id);
+        }
       }
     });
-    return urls;
+
+    // Clean up URLs that are no longer in use
+    oldUrls.forEach((url) => {
+      URL.revokeObjectURL(url);
+    });
+
+    setUrls(newUrls);
+
+    // Cleanup function for when component unmounts
+    return () => {
+      newUrls.forEach((url) => {
+        URL.revokeObjectURL(url);
+      });
+    };
   }, [items]);
 
-  useEffect(() => {
-    return () => {
-      previewUrls.forEach((url) => URL.revokeObjectURL(url));
-    };
-  }, [previewUrls]);
+  const getPreviewUrl = (attachment, index) => {
+    if (attachment?.file instanceof File) {
+      const id = getAttachmentIdentity(attachment) || `item-${index}`;
+      return urls.get(id);
+    }
+    return buildAttachmentUrl(attachment);
+  };
 
   if (items.length === 0) return null;
 
@@ -54,14 +79,13 @@ export default function AttachmentList({
       {items.map((attachment, index) => {
         const name = getAttachmentName(attachment);
         const size = formatAttachmentSize(getAttachmentSize(attachment));
-        const identity = getAttachmentIdentity(attachment);
-        const href =
-          previewUrls.get(identity) || buildAttachmentUrl(attachment);
+        const idFromMetadata = getAttachmentIdentity(attachment);
+        const href = getPreviewUrl(attachment, index);
         const isImage = isImageAttachment(attachment);
 
         return (
           <div
-            key={`${identity}-${index}`}
+            key={idFromMetadata || `item-${index}`}
             className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-indigo-100 hover:shadow-md"
           >
             <div className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-lg bg-slate-50 text-slate-500">

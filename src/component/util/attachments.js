@@ -6,17 +6,21 @@ export const ATTACHMENT_CONFIG = {
 };
 
 export function buildAttachmentUrl(attachment) {
+  if (!attachment) return null;
+
   const raw =
     typeof attachment === "string"
       ? attachment
-      : attachment?.url ||
-        attachment?.secure_url ||
-        attachment?.path ||
-        attachment?.location ||
-        attachment?.href ||
+      : attachment.url ||
+        attachment.secure_url ||
+        attachment.path ||
+        attachment.location ||
+        attachment.href ||
+        attachment.dataUrl ||
         "";
 
-  if (!raw) return null;
+  if (!raw || typeof raw !== "string") return null;
+
   if (
     raw.startsWith("data:") ||
     /^blob:/i.test(raw) ||
@@ -49,10 +53,11 @@ export function getAttachmentName(attachment) {
 }
 
 export function isImageAttachment(attachment) {
-  const type = attachment?.type || attachment?.mimetype || "";
-  if (type.startsWith("image/")) return true;
+  if (!attachment) return false;
+  const type = attachment.type || attachment.mimetype || "";
+  if (typeof type === "string" && type.startsWith("image/")) return true;
   const name = getAttachmentName(attachment).toLowerCase();
-  return /\.(jpg|jpeg|png|gif|webp|avif|svg)$/.test(name);
+  return /\.(jpg|jpeg|png|gif|webp|avif|svg|bmp|ico|tiff)$/.test(name);
 }
 
 export function getAttachmentSize(attachment) {
@@ -61,28 +66,32 @@ export function getAttachmentSize(attachment) {
 
 export function getAttachmentIdentity(attachment) {
   if (!attachment) return "";
+
+  let fileObj = null;
   if (attachment instanceof File) {
-    return `${attachment.name}-${attachment.size}-${attachment.lastModified}`;
-  }
-  // Normalized wrapper holding a live File
-  if (attachment?.file instanceof File) {
-    const f = attachment.file;
-    return `${f.name}-${f.size}-${f.lastModified}`;
+    fileObj = attachment;
+  } else if (attachment?.file instanceof File) {
+    fileObj = attachment.file;
   }
 
-  return String(
+  if (fileObj) {
+    // Generate a stable ID based on file metadata
+    const name = fileObj.name || "file";
+    const size = fileObj.size || 0;
+    const modified = fileObj.lastModified || 0;
+    return `file-${name}-${size}-${modified}`;
+  }
+
+  const id =
     attachment._id ||
-      attachment.id ||
-      attachment.public_id ||
-      attachment.asset_id ||
-      attachment.url ||
-      attachment.secure_url ||
-      attachment.path ||
-      attachment.location ||
-      attachment.key ||
-      attachment.dataUrl ||
-      getAttachmentName(attachment),
-  );
+    attachment.id ||
+    attachment.public_id ||
+    attachment.url ||
+    attachment.path ||
+    attachment.dataUrl ||
+    "";
+
+  return id ? String(id) : "";
 }
 
 export function formatAttachmentSize(size = 0) {
@@ -130,7 +139,8 @@ export function normalizeAttachment(attachment) {
   const url = buildAttachmentUrl(attachment);
   // dataUrl is only the base64 data: string, never a remote URL
   const dataUrl =
-    attachment.dataUrl && attachment.dataUrl.startsWith("data:")
+    typeof attachment.dataUrl === "string" &&
+    attachment.dataUrl.startsWith("data:")
       ? attachment.dataUrl
       : null;
 

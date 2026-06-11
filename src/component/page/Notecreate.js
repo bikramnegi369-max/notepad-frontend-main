@@ -485,7 +485,13 @@ export default function Notecreate() {
                     setHasSavedDraft(remainingDrafts.length > 0);
                     setAttachments([]);
                     hasUserEditedRef.current = false;
+                    
+                    // Reset the form values to empty
                     formik.resetForm({ values: EMPTY_NOTE });
+
+                    // Clear navigation state to prevent enableReinitialize from restoring old values
+                    navigate(location.pathname, { replace: true, state: {} });
+
                     toast.info("Draft discarded");
                   }}
                   className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-red-600 sm:w-auto sm:px-4 sm:text-sm sm:font-bold"
