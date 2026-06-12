@@ -78,7 +78,11 @@ export function getAttachmentIdentity(attachment) {
     // Generate a stable ID based on file metadata
     const name = fileObj.name || "file";
     const size = fileObj.size || 0;
-    const modified = fileObj.lastModified || 0;
+    // Use a fallback for lastModified as it can change when restoring from drafts
+    const modified =
+      fileObj.lastModified ||
+      (attachment.updatedAt ? new Date(attachment.updatedAt).getTime() : 0);
+
     return `file-${name}-${size}-${modified}`;
   }
 

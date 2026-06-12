@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef, useLayoutEffect } from "react";
 import {
   IoClose,
   IoCloudDownloadOutline,
@@ -23,47 +23,55 @@ export default function AttachmentList({
 }) {
   const items = useMemo(() => normalizeAttachments(attachments), [attachments]);
   const [urls, setUrls] = useState(new Map());
+  const fileUrlMapRef = useRef(new Map()); // Maps File objects to their Blob URLs
 
   // Create blob URLs for new files and cleanup old ones
-  useEffect(() => {
-    const newUrls = new Map();
-    const oldUrls = new Map(urls);
+  useLayoutEffect(() => {
+    const currentFileUrlMap = fileUrlMapRef.current;
+    const nextFileUrlMap = new Map();
+    const activeFiles = new Set();
+    let hasChanged = false;
 
-    items.forEach((attachment, index) => {
+    items.forEach((attachment) => {
       if (attachment?.file instanceof File) {
-        const id = getAttachmentIdentity(attachment) || `item-${index}`;
+        const file = attachment.file;
+        activeFiles.add(file);
 
-        // Check if we already have a URL for this file (by identity)
-        if (!oldUrls.has(id)) {
-          const url = URL.createObjectURL(attachment.file);
-          newUrls.set(id, url);
+        if (currentFileUrlMap.has(file)) {
+          nextFileUrlMap.set(file, currentFileUrlMap.get(file));
         } else {
-          // Reuse existing URL
-          newUrls.set(id, oldUrls.get(id));
-          oldUrls.delete(id);
+          const url = URL.createObjectURL(file);
+          nextFileUrlMap.set(file, url);
+          hasChanged = true;
         }
       }
     });
 
-    // Clean up URLs that are no longer in use
-    oldUrls.forEach((url) => {
-      URL.revokeObjectURL(url);
+    // Clean up URLs for files that were removed
+    currentFileUrlMap.forEach((url, file) => {
+      if (!activeFiles.has(file)) {
+        URL.revokeObjectURL(url);
+        hasChanged = true;
+      }
     });
 
-    setUrls(newUrls);
+    if (hasChanged) {
+      fileUrlMapRef.current = nextFileUrlMap;
+      setUrls(new Map(nextFileUrlMap));
+    }
+  }, [items]);
 
-    // Cleanup function for when component unmounts
+  // Final cleanup on unmount
+  useEffect(() => {
     return () => {
-      newUrls.forEach((url) => {
-        URL.revokeObjectURL(url);
-      });
+      fileUrlMapRef.current.forEach((url) => URL.revokeObjectURL(url));
+      fileUrlMapRef.current.clear();
     };
-  }, [items, urls]);
+  }, []);
 
   const getPreviewUrl = (attachment, index) => {
     if (attachment?.file instanceof File) {
-      const id = getAttachmentIdentity(attachment) || `item-${index}`;
-      return urls.get(id);
+      return urls.get(attachment.file);
     }
     return buildAttachmentUrl(attachment);
   };

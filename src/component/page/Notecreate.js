@@ -366,9 +366,8 @@ export default function Notecreate() {
 
   const handleAttachmentChange = (event) => {
     const files = Array.from(event.target.files || []);
-    if (files.length === 0) {
-      return;
-    }
+    if (files.length === 0) return;
+
     hasUserEditedRef.current = true;
 
     const validationError = validateFiles(files, attachments.length);
@@ -376,10 +375,7 @@ export default function Notecreate() {
       toast.error(validationError);
       return;
     }
-    setAttachments((currentFiles) => {
-      return [...currentFiles, ...files];
-    });
-
+    setAttachments((current) => [...current, ...files]);
     event.target.value = "";
   };
 
