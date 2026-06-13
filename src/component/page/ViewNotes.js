@@ -206,13 +206,6 @@ export default function ViewNotes({ id }) {
               >
                 Close
               </button>
-              <Link
-                to={`/update/${id}`}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-8 text-sm font-bold text-white shadow-xl shadow-slate-200 transition-all hover:bg-slate-800 active:scale-95"
-              >
-                <IoCreateOutline size={18} />
-                Edit note
-              </Link>
             </div>
           </section>
         </div>
