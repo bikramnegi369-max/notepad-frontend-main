@@ -9,6 +9,7 @@ import {
 } from "react-icons/io5";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import useAuth from "../../contexts/Auth";
+import Api_Url from "../api/api";
 import { useSocket } from "../../contexts/SocketContext";
 import useListMessage from "../../contexts/useListMessage";
 import {
@@ -23,6 +24,7 @@ const navLinks = [
   { label: "All Notes", href: "/allnotes", icon: IoDocumentTextOutline },
   { label: "Chat", href: "/message", icon: IoChatbubblesOutline },
   { label: "Drafts", href: "/draft", icon: IoFileTrayOutline },
+  { label: "Credentials", href: "/credentials", icon: IoFileTrayOutline },
 ];
 
 const Header = () => {
@@ -32,6 +34,27 @@ const Header = () => {
   const { socket } = useSocket();
   const { messageList } = useListMessage();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [draftCount, setDraftCount] = useState(0);
+
+  const fetchDraftCount = useCallback(async () => {
+    if (!cookies?.token) return;
+    try {
+      const response = await Api_Url.get("draft");
+      const serverDrafts = response.data.data || [];
+      setDraftCount(serverDrafts.length);
+    } catch (error) {
+      // Silent fail for background sync to avoid UI noise
+    }
+  }, [cookies?.token]);
+
+  useEffect(() => {
+    fetchDraftCount();
+
+    window.addEventListener("draftsUpdated", fetchDraftCount);
+    return () => {
+      window.removeEventListener("draftsUpdated", fetchDraftCount);
+    };
+  }, [fetchDraftCount, location.pathname]);
 
   // Centralized user identity for chat logic
   const currentUser = useMemo(
@@ -47,7 +70,10 @@ const Header = () => {
   // Calculate global unread count from the message list provided by context
   const totalUnreadCount = useMemo(() => {
     const conversations = normalizeConversations(messageList);
-    return conversations.reduce((acc, conv) => acc + (conv.newMessages || 0), 0);
+    return conversations.reduce(
+      (acc, conv) => acc + (conv.newMessages || 0),
+      0,
+    );
   }, [messageList]);
 
   const refreshLists = useCallback(() => {
@@ -64,7 +90,7 @@ const Header = () => {
       if (isIncomingMessage(data, currentUser)) {
         playNotificationSound();
         // Only trigger a refresh from the header if the user is NOT on the chat page.
-        // While on the message page, the Message component handles its own 
+        // While on the message page, the Message component handles its own
         // refresh logic to prevent race conditions with "mark as read" events.
         if (location.pathname !== "/message") {
           refreshLists();
@@ -147,11 +173,18 @@ const Header = () => {
                     onClick={() => setMenuOpen(false)}
                   >
                     <span className="relative flex items-center gap-2">
-                      {link.icon && <link.icon size={18} className="opacity-70" />}
+                      {link.icon && (
+                        <link.icon size={18} className="opacity-70" />
+                      )}
                       {link.label}
                       {link.label === "Chat" && totalUnreadCount > 0 && (
                         <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white ring-2 ring-white">
                           {totalUnreadCount > 99 ? "99+" : totalUnreadCount}
+                        </span>
+                      )}
+                      {link.label === "Drafts" && draftCount > 0 && (
+                        <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-indigo-500 px-1 text-[9px] font-bold text-white ring-2 ring-white">
+                          {draftCount > 99 ? "99+" : draftCount}
                         </span>
                       )}
                     </span>

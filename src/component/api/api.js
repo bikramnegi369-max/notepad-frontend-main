@@ -2,7 +2,8 @@ import axios from "axios";
 
 const BASE_URL =
   process.env.REACT_APP_API_URL ||
-  "https://4frnn03l-3000.inc1.devtunnels.ms/api";
+  "https://entryapi.entryus.xyz/api" ||
+  "https://4frnn03l-3016.inc1.devtunnels.ms/api";
 export const API_BASE_URL = BASE_URL;
 
 export const Api_Url = axios.create({

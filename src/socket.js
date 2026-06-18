@@ -2,7 +2,8 @@ import { io } from "socket.io-client";
 
 const API_URL =
   process.env.REACT_APP_API_URL ||
-  "https://4frnn03l-3000.inc1.devtunnels.ms/api";
+  "https://entryapi.entryus.xyz/api" ||
+  "https://4frnn03l-3016.inc1.devtunnels.ms/api";
 const getSocketUrl = () => {
   if (process.env.REACT_APP_SOCKET_URL) return process.env.REACT_APP_SOCKET_URL;
   return API_URL.replace(/\/api\/?$/, "");

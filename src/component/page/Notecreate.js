@@ -213,6 +213,7 @@ export default function Notecreate() {
           if (draftIdRef.current && !isLocalDraftId(draftIdRef.current)) {
             // Only delete if a draftId exists
             await Api_Url.delete(`draft/${draftIdRef.current}`);
+            window.dispatchEvent(new Event("draftsUpdated"));
             setDraftId(null); // Clear draftId after deletion
           }
         } else {
@@ -235,6 +236,7 @@ export default function Notecreate() {
             const serverId = response.data.data._id;
             setDraftId(serverId);
             replaceLocalDraftId(currentId, serverId);
+            window.dispatchEvent(new Event("draftsUpdated"));
           }
         }
       } catch (error) {
@@ -482,6 +484,7 @@ export default function Notecreate() {
                     setHasSavedDraft(remainingDrafts.length > 0);
                     setAttachments([]);
                     hasUserEditedRef.current = false;
+                    window.dispatchEvent(new Event("draftsUpdated"));
 
                     // Reset the form values to empty
                     formik.resetForm({ values: EMPTY_NOTE });

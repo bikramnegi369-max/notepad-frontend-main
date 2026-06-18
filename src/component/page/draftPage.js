@@ -83,6 +83,7 @@ export default function DraftPage() {
       saveLocalDrafts(remaining);
       setDrafts(remaining);
 
+      window.dispatchEvent(new Event("draftsUpdated"));
       setDeleteId(null);
       toast.success("Draft deleted.");
     } catch (error) {

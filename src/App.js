@@ -15,6 +15,7 @@ import UpdateNote from "./component/page/updateNote";
 import useAuth from "./contexts/Auth";
 import Message from "./component/page/Message";
 import DraftPage from "./component/page/draftPage";
+import Credentials from "./component/page/Credentials";
 
 function App() {
   return (
@@ -31,6 +32,7 @@ function App() {
             <Route path="update/:id" element={<UpdateNote />} />
             <Route path="message" element={<Message />} />
             <Route path="draft" element={<DraftPage />} />
+            <Route path="/credentials" element={<Credentials />} />
           </Route>
         </Route>
 

@@ -183,7 +183,7 @@ export default function Allnotes() {
             </Link>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {allNotes?.map((note) => (
               <div
                 key={note?._id}

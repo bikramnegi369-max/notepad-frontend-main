@@ -196,6 +196,7 @@ export default function UpdateNote() {
             removeLocalDraftsForNote(id);
             if (!isLocalDraftId(draftIdRef.current)) {
               await Api_Url.delete(`draft/${draftIdRef.current}`);
+              window.dispatchEvent(new Event("draftsUpdated"));
             }
             setDraftId(null);
           }
@@ -229,6 +230,7 @@ export default function UpdateNote() {
             setDraftId(serverId);
             draftIdRef.current = serverId;
             replaceLocalDraftId(currentDraftId, serverId);
+            window.dispatchEvent(new Event("draftsUpdated"));
           }
         }
       } catch (e) {
@@ -427,6 +429,7 @@ export default function UpdateNote() {
 
                     setDraftId(null);
                     hasUserEditedRef.current = false;
+                    window.dispatchEvent(new Event("draftsUpdated"));
                     toast.info(
                       "Unsaved changes discarded. Restored original content.",
                     );
