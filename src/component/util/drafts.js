@@ -209,7 +209,9 @@ export function upsertLocalDraft(nextDraft) {
   if (!normalized) return loadLocalDrafts();
   const result = saveLocalDrafts([normalized, ...loadLocalDrafts()]);
   try {
-    window.dispatchEvent(new Event("draftsUpdated"));
+    if (!navigator.onLine) {
+      window.dispatchEvent(new Event("draftsUpdated"));
+    }
   } catch (e) {}
   return result;
 }
@@ -219,7 +221,9 @@ export function removeLocalDraftsForNote(noteId) {
     loadLocalDrafts().filter((draft) => draft.noteId !== String(noteId)),
   );
   try {
-    window.dispatchEvent(new Event("draftsUpdated"));
+    if (!navigator.onLine) {
+      window.dispatchEvent(new Event("draftsUpdated"));
+    }
   } catch (e) {}
   return result;
 }
