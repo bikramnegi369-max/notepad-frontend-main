@@ -62,9 +62,7 @@ export default function Allnotes() {
   };
 
   const attachmentCount = (note) => {
-    const raw = note?.attachments || note?.attachment || [];
-    if (!raw) return 0;
-    return Array.isArray(raw) ? raw.filter(Boolean).length : 1;
+    return note?.attachments?.length || 0;
   };
 
   const handleSearch = async (e) => {
@@ -183,53 +181,86 @@ export default function Allnotes() {
             </Link>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-            {allNotes?.map((note) => (
-              <div
-                key={note?._id}
-                className="flex min-h-48 flex-col rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:border-green-200 hover:shadow-md hover:shadow-green-500/5"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+          <div className="flex flex-col gap-2 bg-white rounded-2xl border border-gray-200 p-2 shadow-sm">
+            {/* Table Header for Desktop */}
+            <div className="hidden md:grid grid-cols-12 gap-4 px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">
+              <div className="col-span-7 lg:col-span-8">Note Details</div>
+              <div className="col-span-2 text-center">Date Created</div>
+              <div className="col-span-1 text-center">Attachments</div>
+              <div className="col-span-2 lg:col-span-1 text-right">Actions</div>
+            </div>
+
+            {/* Note Rows */}
+            <div className="flex flex-col gap-1.5">
+              {allNotes?.map((note) => (
+                <div
+                  key={note?._id}
+                  className="group grid grid-cols-1 md:grid-cols-12 items-center gap-3 md:gap-4 rounded-xl border border-transparent hover:border-green-100 hover:bg-green-50/20 p-2.5 transition-all duration-200 md:px-6"
+                >
+                  {/* Title & Preview column */}
+                  <div className="col-span-1 md:col-span-7 lg:col-span-8 flex items-center gap-3 min-w-0">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-green-50 text-green-600 transition-colors group-hover:bg-green-100">
+                      <IoDocumentTextOutline size={18} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <h3 className="truncate text-sm font-semibold text-slate-800 group-hover:text-green-700 transition-colors">
+                          {note?.title || "Untitled Note"}
+                        </h3>
+                        {/* Mobile attachment badge */}
+                        {attachmentCount(note) > 0 && (
+                          <span className="inline-flex md:hidden items-center gap-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                            <IoDocumentTextOutline size={10} />
+                            {attachmentCount(note)}
+                          </span>
+                        )}
+                      </div>
+                      <p className="truncate text-xs text-slate-400 mt-0.5">
+                        {truncateContent(note?.content || "Empty note", 12)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Date Created column */}
+                  <div className="col-span-1 md:col-span-2 flex items-center md:justify-center text-xs text-slate-500 md:text-slate-600 font-medium">
+                    <span className="md:hidden text-slate-400 mr-1.5">Created:</span>
                     {note?.createdAt
                       ? dateFormat(note.createdAt, "dd mmm yyyy")
                       : "No date"}
-                  </p>
-                  <div className="flex items-center gap-2">
-                    {attachmentCount(note) > 0 && (
-                      <div className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
-                        <IoDocumentTextOutline size={14} />
+                  </div>
+
+                  {/* Attachments column (desktop) */}
+                  <div className="hidden md:flex md:col-span-1 justify-center">
+                    {attachmentCount(note) > 0 ? (
+                      <div className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-600 border border-slate-100">
+                        <IoDocumentTextOutline size={12} className="text-slate-500" />
                         <span>{attachmentCount(note)}</span>
                       </div>
+                    ) : (
+                      <span className="text-slate-300">-</span>
                     )}
-                    <ViewNotes
-                      id={note?._id}
-                      className="inline-flex items-center justify-center rounded-full text-gray-700 transition hover:bg-gray-100 p-1.5"
-                    />
+                  </div>
+
+                  {/* Actions column */}
+                  <div className="col-span-1 md:col-span-2 lg:col-span-1 flex items-center justify-end gap-1.5 border-t border-slate-50 pt-2.5 md:border-t-0 md:pt-0">
+                    <div className="flex items-center gap-1 bg-slate-50 rounded-lg p-0.5 border border-slate-100 group-hover:bg-white transition-colors">
+                      <ViewNotes id={note?._id} />
+                      {isCurrentDate(note?.createdAt) ? (
+                        <Link
+                          to={`/update/${note?._id}`}
+                          className="grid h-9 w-9 place-items-center rounded-full text-slate-500 transition-all hover:bg-slate-100 hover:text-green-600"
+                          aria-label="Edit note"
+                        >
+                          <CiEdit size={20} />
+                        </Link>
+                      ) : (
+                        <div className="w-9 h-9" />
+                      )}
+                    </div>
                   </div>
                 </div>
-                {/*  */}{" "}
-                <div className="mt-3 flex-1">
-                  <h3 className="line-clamp-2 text-lg font-black tracking-tight text-slate-900 leading-tight">
-                    {note?.title || "Untitled Note"}
-                  </h3>
-                  <p className="mt-2 line-clamp-4 whitespace-pre-wrap break-words text-[13px] leading-relaxed text-slate-500">
-                    {truncateContent(note?.content || "Empty note", 32)}
-                  </p>
-                </div>
-                <div className="mt-4 flex items-center justify-end gap-2 border-t border-gray-100 pt-3 px-1">
-                  {isCurrentDate(note?.createdAt) && (
-                    <Link
-                      to={`/update/${note?._id}`}
-                      className="grid h-9 w-9 place-items-center rounded-full text-gray-700 transition hover:bg-gray-100"
-                      aria-label="Edit note"
-                    >
-                      <CiEdit size={22} />
-                    </Link>
-                  )}
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         )}
       </div>
