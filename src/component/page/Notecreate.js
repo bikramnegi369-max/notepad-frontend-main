@@ -14,6 +14,8 @@ import {
   replaceLocalDraftId,
   saveLocalDrafts,
   upsertLocalDraft,
+  mergeServerAndLocalDrafts,
+  syncDraftOnUnload,
 } from "../util/drafts";
 import {
   appendAttachmentsToFormData,
@@ -77,6 +79,7 @@ export default function Notecreate() {
     enableReinitialize: true,
     validationSchema,
     onSubmit: async (values, { setSubmitting, setErrors, resetForm }) => {
+      savedRef.current = true;
       try {
         const formData = new FormData();
         formData.append("title", values.title);
@@ -117,6 +120,7 @@ export default function Notecreate() {
           toast.error(response.data?.message || "Failed to save note");
         }
       } catch (err) {
+        savedRef.current = false;
         const message = err.response?.data?.message || "Failed to save note.";
         toast.error(message);
         setErrors({ api: message });
@@ -197,6 +201,7 @@ export default function Notecreate() {
 
   const saveDraft = useCallback(
     async (values) => {
+      if (savedRef.current) return;
       const title = values.title?.trim();
       const content = values.content?.trim();
       const currentAttachments = attachments || [];
@@ -225,9 +230,7 @@ export default function Notecreate() {
             formData.append("id", draftIdRef.current);
           }
           appendAttachmentsToFormData(formData, currentAttachments);
-          const response = await Api_Url.post("draft", formData, {
-            headers: { "Content-Type": "multipart/form-data" },
-          });
+          const response = await Api_Url.post("draft", formData);
           // If a new draft was created on the server (no draftId existed), update draftId state
           if (
             response.data?.data?._id &&
@@ -241,6 +244,13 @@ export default function Notecreate() {
         }
       } catch (error) {
         toast.error("Unable to sync draft to server.");
+        if (currentId) {
+          const stored = loadLocalDrafts();
+          const updated = stored.map((d) =>
+            d.id === currentId ? { ...d, isUnsynced: true } : d,
+          );
+          saveLocalDrafts(updated);
+        }
       } finally {
         setTimeout(() => setIsDraftSaving(false), 500);
       }
@@ -251,11 +261,12 @@ export default function Notecreate() {
 
   // Modified useEffect to call saveDraft
   useEffect(() => {
-    if (!hasUserEditedRef.current) {
+    if (!hasUserEditedRef.current || savedRef.current) {
       return;
     }
 
     const timeoutId = setTimeout(() => {
+      if (savedRef.current) return;
       saveDraft(formik.values);
     }, 1500);
 
@@ -267,22 +278,19 @@ export default function Notecreate() {
   useEffect(() => {
     if (resumedContent) return; // Already loaded from state
 
-    const storedDrafts = loadLocalDrafts();
-    const createDrafts = storedDrafts.filter((draft) => !draft.noteId);
-    if (createDrafts.length > 0) {
-      setHasSavedDraft(true);
-      if (shouldResumeDraft && resumedDraftId) {
-        const matched = createDrafts.find(
-          (draft) => draft.id === resumedDraftId,
-        );
-        if (matched) {
-          applyDraftValues(matched);
-          setDraftId(resumedDraftId);
-        }
+    // 1. Initial display using local drafts immediately (fast load)
+    const initialLocal = loadLocalDrafts();
+    const createDrafts = initialLocal.filter((draft) => !draft.noteId);
+    setHasSavedDraft(createDrafts.length > 0);
+    if (shouldResumeDraft && resumedDraftId) {
+      const matched = createDrafts.find((draft) => draft.id === resumedDraftId);
+      if (matched) {
+        applyDraftValues(matched);
+        setDraftId(resumedDraftId);
       }
-      return;
     }
 
+    // 2. Fetch and merge from server in background
     const loadDraft = async () => {
       try {
         const response = await Api_Url.get("draft");
@@ -290,48 +298,44 @@ export default function Notecreate() {
           response.data.data,
         ).filter((draft) => !draft.noteId);
 
-        if (normalizedDrafts.length > 0) {
-          const drafts = [];
-          for (const draft of normalizedDrafts) {
-            const id = draft.id || createDraftId();
-            const base = {
-              id,
-              title: draft.title || "",
-              content: draft.content,
-              updatedAt: draft.updatedAt || new Date().toISOString(),
-            };
+        const serverDraftsMapped = [];
+        for (const draft of normalizedDrafts) {
+          const id = draft.id || createDraftId();
+          const base = {
+            id,
+            title: draft.title || "",
+            content: draft.content,
+            updatedAt: draft.updatedAt || new Date().toISOString(),
+          };
 
-            if (
-              Array.isArray(draft.attachments) &&
-              draft.attachments.length > 0
-            ) {
-              drafts.push({
-                ...base,
-                attachments: attachmentsToDraftReferences(draft.attachments),
-              });
-            } else {
-              drafts.push(base);
-            }
+          if (
+            Array.isArray(draft.attachments) &&
+            draft.attachments.length > 0
+          ) {
+            serverDraftsMapped.push({
+              ...base,
+              attachments: attachmentsToDraftReferences(draft.attachments),
+            });
+          } else {
+            serverDraftsMapped.push(base);
           }
+        }
 
-          saveLocalDrafts([
-            ...drafts,
-            ...loadLocalDrafts().filter((draft) => draft.noteId),
-          ]);
-          setHasSavedDraft(true);
+        const localDrafts = loadLocalDrafts();
+        const merged = mergeServerAndLocalDrafts(serverDraftsMapped, localDrafts);
+        saveLocalDrafts(merged);
+        
+        const finalCreateDrafts = merged.filter((draft) => !draft.noteId);
+        setHasSavedDraft(finalCreateDrafts.length > 0);
 
-          if (shouldResumeDraft && resumedDraftId) {
-            const matched = drafts.find((item) => item.id === resumedDraftId);
-            if (matched) {
-              applyDraftValues(matched);
-              setDraftId(resumedDraftId);
-            }
+        if (shouldResumeDraft && resumedDraftId) {
+          const matched = merged.find((item) => item.id === resumedDraftId);
+          if (matched) {
+            applyDraftValues(matched);
+            setDraftId(resumedDraftId);
           }
-        } else {
-          setHasSavedDraft(loadLocalDrafts().length > 0);
         }
       } catch (error) {
-        // remote draft restore failed; local drafts will be used instead
         setHasSavedDraft(loadLocalDrafts().length > 0);
       }
     };
@@ -346,10 +350,24 @@ export default function Notecreate() {
           formik.values.title.trim() ||
           attachments.length > 0)
       ) {
-        // include attachments when syncing on unload
+        const currentDraftId = draftIdRef.current || createDraftId();
+        // 1. Sync to local storage
         syncDraftToStorage(
           { title: formik.values.title, content: formik.values.content },
           attachments,
+        );
+        // Mark as unsynced in local storage for online recovery
+        const stored = loadLocalDrafts();
+        const updated = stored.map((d) =>
+          d.id === currentDraftId ? { ...d, isUnsynced: true } : d,
+        );
+        saveLocalDrafts(updated);
+
+        // 2. Sync to server in the background
+        syncDraftOnUnload(
+          currentDraftId,
+          formik.values.title,
+          formik.values.content,
         );
       }
     };

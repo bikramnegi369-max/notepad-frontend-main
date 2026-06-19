@@ -16,6 +16,7 @@ import {
   loadLocalDrafts,
   normalizeServerDrafts,
   saveLocalDrafts,
+  mergeServerAndLocalDrafts,
 } from "../util/drafts";
 import AttachmentList from "../common/AttachmentList";
 
@@ -34,23 +35,13 @@ export default function DraftPage() {
 
     try {
       const response = await Api_Url.get("draft");
-      const normalizedDrafts = normalizeServerDrafts(response.data.data);
+      const normalizedDrafts = normalizeServerDrafts(response.data.data) || [];
 
-      if (normalizedDrafts.length > 0) {
-        // Source of truth is the server, but keep local-only drafts
-        const merged = [...normalizedDrafts];
-        localDrafts.forEach((ld) => {
-          const exists = normalizedDrafts.some(
-            (sd) => sd.id === ld.id || (ld.noteId && sd.noteId === ld.noteId),
-          );
-          if (!exists) merged.push(ld);
-        });
-
-        const savedDrafts = saveLocalDrafts(merged);
-        setDrafts(savedDrafts);
-        setIsLoading(false);
-        return;
-      }
+      const merged = mergeServerAndLocalDrafts(normalizedDrafts, localDrafts);
+      const savedDrafts = saveLocalDrafts(merged);
+      setDrafts(savedDrafts);
+      setIsLoading(false);
+      return;
     } catch (error) {
       // remote draft fetch failed; continue with local drafts
     }

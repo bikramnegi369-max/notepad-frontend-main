@@ -11,6 +11,9 @@ import {
   removeLocalDraftsForNote,
   replaceLocalDraftId,
   upsertLocalDraft,
+  mergeServerAndLocalDrafts,
+  syncDraftOnUnload,
+  saveLocalDrafts,
 } from "../util/drafts";
 import {
   validateFiles,
@@ -46,6 +49,7 @@ export default function UpdateNote() {
   const [titleError, setTitleError] = useState("");
   const [contentError, setContentError] = useState("");
   const hasUserEditedRef = useRef(false);
+  const savedRef = useRef(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { id } = useParams();
@@ -86,16 +90,44 @@ export default function UpdateNote() {
         attachments: normalizedAttachments,
       });
 
-      const localDraft = loadLocalDrafts().find(
+      const localDrafts = loadLocalDrafts();
+      const localDraft = localDrafts.find(
         (draft) =>
           draft.noteId === id ||
           (location.state?.draftId && draft.id === location.state.draftId),
       );
 
       let serverDraft = null;
+      let serverDraftsMapped = [];
       try {
         const draftRes = await Api_Url.get("draft");
-        serverDraft = normalizeServerDrafts(draftRes.data.data).find(
+        const normalizedDrafts = normalizeServerDrafts(draftRes.data.data);
+        for (const draft of normalizedDrafts) {
+          const base = {
+            id: draft.id || createDraftId(),
+            noteId: draft.noteId || null,
+            title: draft.title || "",
+            content: draft.content || "",
+            updatedAt: draft.updatedAt || new Date().toISOString(),
+          };
+
+          if (
+            Array.isArray(draft.attachments) &&
+            draft.attachments.length > 0
+          ) {
+            serverDraftsMapped.push({
+              ...base,
+              attachments: attachmentsToDraftReferences(draft.attachments),
+            });
+          } else {
+            serverDraftsMapped.push(base);
+          }
+        }
+
+        const merged = mergeServerAndLocalDrafts(serverDraftsMapped, localDrafts);
+        saveLocalDrafts(merged);
+
+        serverDraft = serverDraftsMapped.find(
           (draft) =>
             draft.noteId === id ||
             (location.state?.draftId && draft.id === location.state.draftId),
@@ -107,30 +139,22 @@ export default function UpdateNote() {
       // Check for attachments passed via location.state
       const resumedDraftAttachments = location.state?.draftAttachments;
 
-      if (localDraft) {
+      const resolvedDraft = (localDraft && localDraft.isUnsynced)
+        ? localDraft
+        : (serverDraft || localDraft);
+
+      if (resolvedDraft) {
         setUpdateNotedata({
-          title: localDraft.title,
-          content: localDraft.content,
+          title: resolvedDraft.title,
+          content: resolvedDraft.content,
         });
-        setDraftId(localDraft.id);
-        if (localDraft.attachments) {
-          setAttachments(restoreDraftAttachments(localDraft.attachments));
+        setDraftId(resolvedDraft.id);
+        if (resolvedDraft.attachments) {
+          setAttachments(restoreDraftAttachments(resolvedDraft.attachments));
         }
-        draftIdRef.current = localDraft.id;
+        draftIdRef.current = resolvedDraft.id;
         hasUserEditedRef.current = true;
-        toast.info("Restored unsaved changes");
-      } else if (serverDraft) {
-        setUpdateNotedata({
-          title: serverDraft.title ?? serverData.title ?? "",
-          content: serverDraft.content ?? serverData.content ?? "",
-        });
-        setDraftId(serverDraft.id);
-        if (serverDraft.attachments) {
-          setAttachments(restoreDraftAttachments(serverDraft.attachments));
-        }
-        draftIdRef.current = serverDraft.id;
-        hasUserEditedRef.current = true;
-        toast.info("Restored changes from cloud.");
+        toast.info(resolvedDraft.isUnsynced ? "Restored unsaved changes" : "Restored changes from cloud.");
       } else if (resumedDraftAttachments) {
         setAttachments(restoreDraftAttachments(resumedDraftAttachments));
         setUpdateNotedata({
@@ -169,7 +193,30 @@ export default function UpdateNote() {
   // Alert on tab change / page close if there are unsaved changes
   useEffect(() => {
     const handleBeforeUnload = (e) => {
-      if (hasUserEditedRef.current) {
+      if (hasUserEditedRef.current && !savedRef.current) {
+        const currentDraftId = draftIdRef.current || createDraftId();
+        const storedDrafts = loadLocalDrafts();
+        const existingLocal = storedDrafts.find((d) => d.id === currentDraftId) || {};
+        
+        // 1. Sync to local storage and mark as unsynced for offline recovery
+        upsertLocalDraft({
+          id: currentDraftId,
+          noteId: id,
+          title: updateNotedata.title || "",
+          content: updateNotedata.content || "",
+          updatedAt: new Date().toISOString(),
+          attachments: existingLocal.attachments || [],
+          isUnsynced: true,
+        });
+        
+        // 2. Sync to server in the background
+        syncDraftOnUnload(
+          currentDraftId,
+          updateNotedata.title,
+          updateNotedata.content,
+          id,
+        );
+
         e.preventDefault();
         e.returnValue = "";
       }
@@ -177,14 +224,15 @@ export default function UpdateNote() {
 
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, []);
+  }, [updateNotedata, id]);
 
-  // Auto-save logic
   useEffect(() => {
-    if (!hasUserEditedRef.current || !id) return;
+    if (!hasUserEditedRef.current || !id || savedRef.current) return;
 
     const timeoutId = setTimeout(async () => {
+      if (savedRef.current) return;
       setIsDraftSaving(true);
+      let generatedDraftId = null;
       try {
         const isContentEmpty =
           !updateNotedata.title?.trim() &&
@@ -202,6 +250,7 @@ export default function UpdateNote() {
           }
         } else {
           const currentDraftId = draftIdRef.current || createDraftId();
+          generatedDraftId = currentDraftId;
           const stored = await filesToStoredAttachments(attachments);
           const attachmentsData = attachmentsToDraftReferences(stored);
           upsertLocalDraft({
@@ -236,6 +285,13 @@ export default function UpdateNote() {
       } catch (e) {
         console.error("Draft save failed", e);
         toast.error("Unable to sync draft to server.");
+        if (generatedDraftId) {
+          const stored = loadLocalDrafts();
+          const updated = stored.map((d) =>
+            d.id === generatedDraftId ? { ...d, isUnsynced: true } : d,
+          );
+          saveLocalDrafts(updated);
+        }
       } finally {
         setTimeout(() => setIsDraftSaving(false), 500);
       }
@@ -303,6 +359,7 @@ export default function UpdateNote() {
       .map((att) => getAttachmentIdentity(att))
       .filter(Boolean);
 
+    savedRef.current = true;
     setIsSaving(true);
     try {
       const formData = new FormData();
@@ -335,6 +392,7 @@ export default function UpdateNote() {
         toast.error(response.data?.message || "Failed to update note.");
       }
     } catch (error) {
+      savedRef.current = false;
       const message = error.response?.data?.message || "Failed to update note.";
       toast.error(message);
     } finally {

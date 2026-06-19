@@ -18,6 +18,13 @@ import {
   normalizeConversations,
   playNotificationSound,
 } from "../util/chat";
+import {
+  loadLocalDrafts,
+  saveLocalDrafts,
+  normalizeServerDrafts,
+  mergeServerAndLocalDrafts,
+  syncUnsyncedDraftsToServer,
+} from "../util/drafts";
 
 const navLinks = [
   { label: "Add Note", href: "/", icon: IoAddOutline },
@@ -38,12 +45,16 @@ const Header = () => {
 
   const fetchDraftCount = useCallback(async () => {
     if (!cookies?.token) return;
+    const localDrafts = loadLocalDrafts();
     try {
       const response = await Api_Url.get("draft");
-      const serverDrafts = response.data.data || [];
-      setDraftCount(serverDrafts.length);
+      const normalizedServer = normalizeServerDrafts(response.data.data) || [];
+      
+      const merged = mergeServerAndLocalDrafts(normalizedServer, localDrafts);
+      const saved = saveLocalDrafts(merged);
+      setDraftCount(saved.length);
     } catch (error) {
-      // Silent fail for background sync to avoid UI noise
+      setDraftCount(localDrafts.length);
     }
   }, [cookies?.token]);
 
@@ -55,6 +66,24 @@ const Header = () => {
       window.removeEventListener("draftsUpdated", fetchDraftCount);
     };
   }, [fetchDraftCount, location.pathname]);
+
+  // Handle sync of offline/unsynced drafts when online status is restored
+  useEffect(() => {
+    if (!cookies?.token) return;
+
+    if (navigator.onLine) {
+      syncUnsyncedDraftsToServer();
+    }
+
+    const handleOnline = () => {
+      syncUnsyncedDraftsToServer();
+    };
+
+    window.addEventListener("online", handleOnline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [cookies?.token]);
 
   // Centralized user identity for chat logic
   const currentUser = useMemo(
