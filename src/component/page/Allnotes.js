@@ -90,11 +90,11 @@ export default function Allnotes() {
   // };
   
   const isCurrentDate = (noteDate) => {
-  const todayInNY = new Intl.DateTimeFormat("en-CA", {
+  const todayInNY = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
   }).format(new Date());
 
-  const noteDateInNY = new Intl.DateTimeFormat("en-CA", {
+  const noteDateInNY = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
   }).format(new Date(noteDate));
 
