@@ -29,7 +29,9 @@ export default function Allnotes() {
       setIsLoading(true);
       const params = new URLSearchParams();
       if (searchTerm.trim()) params.append("search", searchTerm.trim());
-      if (selectedDate) params.append("date", selectedDate); // Add date filter
+      if (selectedDate) {params.append("date", selectedDate);
+        params.append("timezoneOffset", new Date().getTimezoneOffset());
+      }
 
       const response = await Api_Url.get(`getNotes?${params.toString()}`);
       setAllNotes(response.data.data || []);
