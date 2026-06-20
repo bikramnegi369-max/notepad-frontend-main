@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { CiEdit } from "react-icons/ci";
 import Api_Url from "../api/api";
-import dateFormat from "dateformat";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import ViewNotes from "./ViewNotes";
@@ -29,8 +28,9 @@ export default function Allnotes() {
       setIsLoading(true);
       const params = new URLSearchParams();
       if (searchTerm.trim()) params.append("search", searchTerm.trim());
-      if (selectedDate) {params.append("date", selectedDate);
-        params.append("timezoneOffset", new Date().getTimezoneOffset());
+      if (selectedDate) {
+        params.append("date", selectedDate);
+        // params.append("timezoneOffset", new Date().getTimezoneOffset());
       }
 
       const response = await Api_Url.get(`getNotes?${params.toString()}`);
@@ -83,11 +83,23 @@ export default function Allnotes() {
 
   const hasActiveFilters = searchTerm || selectedDate;
 
+  // const isCurrentDate = (noteDate) => {
+  //   const today = dateFormat(new Date(), "yyyy-mm-dd");
+  //   const noteCreationDate = dateFormat(noteDate, "yyyy-mm-dd");
+  //   return today === noteCreationDate;
+  // };
+  
   const isCurrentDate = (noteDate) => {
-    const today = dateFormat(new Date(), "yyyy-mm-dd");
-    const noteCreationDate = dateFormat(noteDate, "yyyy-mm-dd");
-    return today === noteCreationDate;
-  };
+  const todayInNY = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+  }).format(new Date());
+
+  const noteDateInNY = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+  }).format(new Date(noteDate));
+
+  return todayInNY === noteDateInNY;
+};
 
   return (
     <div className="min-h-[calc(100vh-5rem)] bg-slate-50 pb-24 px-4 py-6 sm:px-6">
@@ -227,7 +239,13 @@ export default function Allnotes() {
                   <div className="col-span-1 md:col-span-2 flex items-center md:justify-center text-xs text-slate-500 md:text-slate-600 font-medium">
                     <span className="md:hidden text-slate-400 mr-1.5">Created:</span>
                     {note?.createdAt
-                      ? dateFormat(note.createdAt, "dd mmm yyyy")
+                      // ? dateFormat(note.createdAt, "dd mmm yyyy")
+                      ? new Intl.DateTimeFormat("en-US", {
+                        timeZone: "America/New_York",
+                        day: "2-digit",
+                        month: "short",
+                        year: "numeric",
+                      }).format(new Date(note?.createdAt))
                       : "No date"}
                   </div>
 

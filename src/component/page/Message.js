@@ -14,7 +14,6 @@ import {
   IoRefresh,
   IoVideocamOutline,
 } from "react-icons/io5";
-import dateFormat from "dateformat";
 import Messageuser from "./User";
 import { useSocket } from "../../contexts/SocketContext";
 import useListMessage from "../../contexts/useListMessage";
@@ -34,6 +33,7 @@ import {
   normalizeMessage,
   normalizeMessages,
 } from "../util/chat";
+import { dateInNY, timeInNY } from "../util/inNytimezone";
 
 // ─── File type helpers ────────────────────────────────────────────────────────
 
@@ -772,6 +772,7 @@ export default function Message() {
     }
   };
 
+
   return (
     <div className="h-[calc(100dvh-5.5rem)] min-h-[calc(100vh-5.5rem)] bg-slate-50 lg:px-6 lg:py-6">
       <div className="mx-auto flex h-full w-full max-w-7xl flex-col gap-4 lg:flex-row">
@@ -858,7 +859,7 @@ export default function Message() {
                       <div key={date}>
                         <div className="my-4 flex justify-center">
                           <span className="rounded-full bg-white px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 shadow-sm ring-1 ring-slate-200">
-                            {date}
+                            {dateInNY(date)}
                           </span>
                         </div>
                         <div className="flex flex-col gap-1">
@@ -1080,7 +1081,7 @@ function MessageBubble({ chat, currentUser, selectedUserId }) {
         <p
           className={`px-4 pb-2 text-right text-[10px] font-semibold ${hasAttachment && !chat.message ? "pt-0" : ""} ${incoming ? "text-slate-400" : "text-blue-200"}`}
         >
-          {dateFormat(chat.timestamp || new Date(), "h:MM TT")}
+          {timeInNY(chat.timestamp)}
           {chat.status === "sending" ? " · sending" : ""}
         </p>
       </div>

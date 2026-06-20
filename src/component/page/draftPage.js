@@ -10,7 +10,6 @@ import {
 } from "react-icons/io5";
 import useAuth from "../../contexts/Auth";
 import Api_Url from "../api/api";
-import dateFormat from "dateformat";
 import {
   isLocalDraftId,
   loadLocalDrafts,
@@ -19,6 +18,7 @@ import {
   mergeServerAndLocalDrafts,
 } from "../util/drafts";
 import AttachmentList from "../common/AttachmentList";
+import { dateInNY, timeInNY } from "../util/inNytimezone";
 
 export default function DraftPage() {
   const { logout } = useAuth();
@@ -153,7 +153,7 @@ export default function DraftPage() {
                   <span className="text-xs font-bold uppercase tracking-wider text-gray-400">
                     Last edited{" "}
                     {d.updatedAt
-                      ? dateFormat(d.updatedAt, "h:MM TT")
+                      ? `${dateInNY(d.updatedAt)} at ${timeInNY(d.updatedAt)}`
                       : "Just now"}
                   </span>
                   {d.attachments?.length > 0 && (
